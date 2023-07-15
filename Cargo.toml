@@ -1,0 +1,21 @@
+[package]
+default-run = "cli"
+name = "sxhkd-whichkey"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "gui"
+
+[[bin]]
+name = "cli"
+
+[profile.release]
+strip = true
+
+[dependencies]
+clap = { version = "4.3.11", features = ["derive"] }
+gtk = { version = "0.17.1", features = ["v3_24"] }
+
+[build-dependencies]
+cc = "1.0.79"

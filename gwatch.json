@@ -1,0 +1,12 @@
+{
+  "$schema": "https://raw.githubusercontent.com/Operdies/gwatch.nvim/main/schema.json",
+  "command": "cargo run -- -s /tmp/sxhkd-fifo",
+  "profiles": {
+    "gui": {
+      "command": "cargo run --bin gui -- -s /tmp/sxhkd-fifo"
+    },
+    "cli": {
+      "command": "cargo run -- -s /tmp/sxhkd-fifo"
+    }
+  }
+}

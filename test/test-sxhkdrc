@@ -1,0 +1,13 @@
+# set the node flags
+super + ctrl + {m,x,y,z}
+	bspc node -g {marked,locked,sticky,private}
+
+super + a; b; d
+  echo this is my test seq 2
+
+super + a;   b ; c
+  echo this is my test seq 1
+
+
+super + o : {e,w,m}
+	{gvim,firefox,thunderbird}

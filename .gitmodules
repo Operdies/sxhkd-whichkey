@@ -1,0 +1,3 @@
+[submodule "sxhkd"]
+	path = sxhkd
+	url = https://github.com/baskerville/sxhkd
