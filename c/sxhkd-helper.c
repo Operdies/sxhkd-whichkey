@@ -69,8 +69,30 @@ void setup(void) {
   setenv("SXHKD_PID", sxhkd_pid, 1);
 }
 
+void cleanup(void) {
+  PUTS("cleanup");
+  hotkey_t *hk = hotkeys_head;
+  while (hk != NULL) {
+    hotkey_t *next = hk->next;
+    destroy_chain(hk->chain);
+    free(hk->cycle);
+    free(hk);
+    hk = next;
+  }
+  hotkeys_head = hotkeys_tail = NULL;
+}
+
+void reload_cmd(void) {
+  PUTS("reload");
+  cleanup();
+  load_config(config_file);
+  for (int i = 0; i < num_extra_confs; i++)
+    load_config(extra_confs[i]);
+}
+
 void init_globals(char *cfg) {
   if (initialized) {
+    reload_cmd();
     return;
   }
   int sz = strlen(cfg);
@@ -110,11 +132,4 @@ void init_globals(char *cfg) {
 
   xcb_flush(dpy);
   initialized = true;
-
-  /* for (hotkey_t *hk = hotkeys_head; hk != NULL; hk = hk->next) { */
-  /*   PUTS(hk->command); */
-  /*   for (chord_t *chord = hk->chain->head; chord != NULL; chord = chord->next) */
-  /*     PUTS(chord->repr); */
-  /* } */
 }
-

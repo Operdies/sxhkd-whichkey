@@ -9,5 +9,21 @@ super + a;   b ; c
   echo this is my test seq 1
 
 
-super + o : {e,w,m}
-	{gvim,firefox,thunderbird}
+# Bug: The current hotkey gets reported for repeated terminal 'q' presses, but not for 'w' and 'e'.
+# The chain should be reported consistently (either not at all, or for all chains)
+super + o : {q,w,e}
+	o{gvim,firefox,thunderbird}
+
+super + i ; {q,w,e}
+	i{gvim,firefox,thunderbird}
+
+super + c ; super + d : {a,b,c}
+  a{gvim,firefox,thunderbird}
+
+# Bug: Parsed correctly, doesn't work
+Alt_L ; a ; @Alt_L ; @a
+  123
+
+# Bug: Nested chain locking doesn't work (parsed correctly, but not executed)
+Super + a : b : c
+  456

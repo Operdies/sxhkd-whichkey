@@ -82,13 +82,17 @@ impl Iterator for Subscriber {
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             let next = self.reader.next();
+
             match next {
-                None => return None,
                 Some(ref e) => {
-                    if let Some(e) = Self::parse(e, &self.config) {
+                    if Self::is_restart(e) {
+                        // reload the config by reassigning self
+                        *self = Self::default();
+                    } else if let Some(e) = Self::parse(e, &self.config) {
                         return Some(e);
                     }
                 }
+                None => return None,
             }
         }
     }
@@ -99,6 +103,13 @@ impl Subscriber {
         Self { reader, config }
     }
 
+    fn is_restart(stroke: &Stroke) -> bool {
+        let restart_signal = "pkill -USR1 -x sxhkd";
+        match stroke {
+            Stroke::Command(s) => s == restart_signal,
+            _ => false,
+        }
+    }
     pub fn parse(stroke: &Stroke, cfg: &Config) -> Option<Event> {
         match stroke {
             Stroke::Hotkey(ref h) => {
@@ -125,7 +136,6 @@ impl Subscriber {
         F: Fn(Event) -> bool,
     {
         // TODO: Implement this in a less hardcoded way
-        let restart_signal = "pkill -USR1 -x sxhkd";
         let mut restart = false;
         for stroke in self.reader {
             if let Some(event) = Self::parse(&stroke, &self.config) {
@@ -133,11 +143,9 @@ impl Subscriber {
                     break;
                 }
             }
-            if let Stroke::Command(ref s) = stroke {
-                if s == restart_signal {
-                    restart = true;
-                    break;
-                }
+            if Self::is_restart(&stroke) {
+                restart = true;
+                break;
             };
         }
 
