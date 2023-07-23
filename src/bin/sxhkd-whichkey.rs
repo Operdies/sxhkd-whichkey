@@ -124,6 +124,10 @@ fn build_ui(application: &gtk::Application) {
 }
 
 fn main() -> glib::ExitCode {
+    if std::env::var("DISPLAY").is_err() {
+        std::env::set_var("DISPLAY", ":0");
+        println!("DISPLAY is not set. Trying with DISPLAY=\":0\"");
+    }
     let application = gtk::Application::new(Some("sxhkd.whichkey"), Default::default());
     application.connect_activate(|app| {
         // The CSS "magic" happens here.
