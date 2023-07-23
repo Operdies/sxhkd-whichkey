@@ -34,15 +34,18 @@ pub struct KeyEvent {
 fn get_valid_continuations(cfg: &Config, strokes: &[&str]) -> Config {
     let mut result = vec![];
     for hk in cfg {
-        // let mut matching = false;
         let mut match_idx = None;
         for (i, stroke) in strokes.iter().enumerate() {
             if let Some(c) = hk.chain.get(i) {
                 if c.repr.eq(stroke) {
                     match_idx = Some(i + 1);
                 } else {
-                    match_idx = None
+                    match_idx = None;
+                    break;
                 }
+            } else {
+                match_idx = None;
+                break;
             }
         }
         if let Some(i) = match_idx {
