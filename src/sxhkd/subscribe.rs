@@ -33,37 +33,15 @@ pub struct KeyEvent {
 
 fn get_valid_continuations(cfg: &Config, strokes: &[&str]) -> Config {
     let mut result = vec![];
+    let n_strokes = strokes.len();
     for hk in cfg {
-        let mut match_idx = None;
-        for (i, stroke) in strokes.iter().enumerate() {
-            if let Some(c) = hk.chain.get(i) {
-                if c.repr.eq(stroke) {
-                    match_idx = Some(i + 1);
-                } else {
-                    match_idx = None;
-                    break;
-                }
-            } else {
-                match_idx = None;
-                break;
-            }
+        if hk.chain.len() <= n_strokes {
+            continue;
         }
-        if let Some(i) = match_idx {
+        if hk.chain.iter().zip(strokes).all(|e| e.0.repr.eq(e.1)) {
             let mut hk = hk.clone();
-            hk.chain = hk.chain.into_iter().skip(i).collect();
+            hk.chain = hk.chain.into_iter().skip(n_strokes).collect();
             result.push(hk);
-        }
-    }
-
-    // This is a workaround for a bug of sorts in sxhkd; the current chain being reported
-    // is only reported for repeated key strokes for the first binding in a series. Example:
-    // suoer + o : {q,w,e}
-    // When 'q' is repeatedly pressed, it is added to the chain, but w and e will not be added.
-    // We check for this special case by checking if any continuations contain 0 strokes. If this
-    // is the case, we don't report anything.
-    for r in result.iter() {
-        if r.chain.is_empty() {
-            return vec![];
         }
     }
     result
