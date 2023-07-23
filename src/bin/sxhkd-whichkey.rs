@@ -1,5 +1,4 @@
-use sxhkd_whichkey::sxhkd::subscribe::Subscriber;
-use sxhkd_whichkey::sxhkd::subscribe::{Event, KeyEvent};
+use sxhkd_whichkey::sxhkd::subscribe::{Event, KeyEvent, Subscriber};
 
 use gtk::glib::MainContext;
 use gtk::{gdk, glib, prelude::*, ApplicationWindow};
@@ -8,7 +7,8 @@ fn build_ui(application: &gtk::Application) {
     let window = ApplicationWindow::new(application);
 
     window.set_title("sxhkd-whichkey");
-    window.set_default_size(260, 40);
+    window.set_default_size(100, 40);
+    window.set_size_request(100, 40);
     window.set_decorated(false);
     window.set_can_focus(false);
     window.set_deletable(false);
@@ -26,6 +26,7 @@ fn build_ui(application: &gtk::Application) {
     });
 
     let label = gtk::Label::new(Some("Hello World"));
+    label.set_margin(12);
     window.set_child(Some(&label));
 
     let (sender, receiver) = MainContext::channel(glib::PRIORITY_DEFAULT);

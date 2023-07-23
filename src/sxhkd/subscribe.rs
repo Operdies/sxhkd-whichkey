@@ -40,6 +40,8 @@ fn get_valid_continuations(cfg: &Config, strokes: &[&str]) -> Config {
             if let Some(c) = hk.chain.get(i) {
                 if c.repr.eq(stroke) {
                     match_idx = Some(i + 1);
+                } else {
+                    match_idx = None
                 }
             }
         }
