@@ -8,5 +8,6 @@ When a chain is started, and no commands are executed within a given timeframe, 
 
 # Running
 ```bash
-$ cargo run --bin gui -- -s <STATUS_FIFO
+git clone --recurse-submodules https://github.com/Operdies/sxhkd-whichkey
+cargo run --bin gui -- -s <STATUS_FIFO
 ```
