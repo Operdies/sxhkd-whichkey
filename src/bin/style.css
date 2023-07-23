@@ -1,0 +1,34 @@
+window {
+  background: #38383e;
+}
+grid {
+  margin: 2px;
+  background: #16161e;
+}
+
+grid > label {
+  font-weight: bold;
+  margin: 6px;
+}
+
+separator {
+  border: 2px dashed #38383e;
+  /* background: #38383e; */
+}
+#completion-grid > label {
+  margin: 6px;
+  margin-left: 12px;
+  margin-right: 12px;
+}
+
+label#command {
+  color: #70b7e2;
+  margin-left: 4px;
+}
+
+label#path {
+  font-weight: bold;
+  color: #b494ee;
+  margin-left: 4px;
+  margin-right: 4px;
+}
