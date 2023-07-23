@@ -6,6 +6,9 @@ grid {
   background: #16161e;
 }
 
+label {
+  font-family: monospace;
+}
 grid > label {
   font-weight: bold;
   margin: 6px;

@@ -52,26 +52,16 @@ fn build_grid(event: &KeyEvent) -> gtk::Grid {
         let cmd_label = gtk::Label::new(Some(&hk.command));
         cmd_label.set_widget_name("command");
         cmd_label.set_halign(gtk::Align::Start);
-
         g.attach(&cmd_label, 2 + vj.len() as i32, row, 1, 1);
     }
-    main_grid.attach(
-        &gtk::Separator::new(gtk::Orientation::Vertical),
-        0,
-        1,
-        1,
-        1,
-    );
+
+    let s = gtk::Separator::new(gtk::Orientation::Horizontal);
+    main_grid.attach(&s, 0, 1, 1, 1);
     main_grid.attach(&g, 0, 2, 1, 1);
     let not_shown = (config.len() as i32) - (limit as i32);
     if not_shown > 0 {
-        main_grid.attach(
-            &gtk::Separator::new(gtk::Orientation::Horizontal),
-            0,
-            3,
-            1,
-            1,
-        );
+        let s = gtk::Separator::new(gtk::Orientation::Horizontal);
+        main_grid.attach(&s, 0, 3, 1, 1);
         let lab = gtk::Label::new(Some(&format!("({} options not shown)", not_shown)));
         main_grid.attach(&lab, 0, 4, 1, 1);
     }
