@@ -32,6 +32,14 @@ fn build_grid(event: &KeyEvent) -> gtk::Grid {
     completion_grid.set_widget_name("completion-grid");
     let max_completions = 20;
     let config = &event.config;
+    let widest_remaining = config.iter().fold(0, |acc, elem| {
+        let width = (elem.chain.len() * 2) - 1;
+        if width > acc {
+            width
+        } else {
+            acc
+        }
+    });
     for (row, hotkey) in config.iter().enumerate().take(max_completions) {
         let row = row as i32;
         let remaining_hotkey = hotkey
@@ -48,11 +56,11 @@ fn build_grid(event: &KeyEvent) -> gtk::Grid {
             completion_grid.attach(&label, column, row, 1, 1);
         }
         let arrow = gtk::Label::new(Some(triangle));
-        completion_grid.attach(&arrow, 1 + vj.len() as i32, row, 1, 1);
+        completion_grid.attach(&arrow, 1 + widest_remaining as i32, row, 1, 1);
         let cmd_label = gtk::Label::new(Some(&hotkey.command));
         cmd_label.set_widget_name("command");
         cmd_label.set_halign(gtk::Align::Start);
-        completion_grid.attach(&cmd_label, 2 + vj.len() as i32, row, 1, 1);
+        completion_grid.attach(&cmd_label, 2 + widest_remaining as i32, row, 1, 1);
     }
 
     let sep = gtk::Separator::new(gtk::Orientation::Horizontal);
