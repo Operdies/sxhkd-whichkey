@@ -16,12 +16,13 @@ fn build_ui(application: &gtk::Application) {
     window.set_position(gtk::WindowPosition::CenterAlways);
     window.set_title("sxhkd-whichkey");
     window.set_accept_focus(false);
-    window.set_type_hint(gdk::WindowTypeHint::PopupMenu);
+    window.set_type_hint(gdk::WindowTypeHint::Notification);
+    // window.set
 
     // Connect the 'destroy' event to terminate the application
-    window.connect_delete_event(|_, _| {
-        gtk::main_quit();
-        Inhibit(false)
+    window.connect_delete_event(|w, _| {
+        w.hide();
+        Inhibit(true)
     });
 
     let label = gtk::Label::new(Some("Hello World"));

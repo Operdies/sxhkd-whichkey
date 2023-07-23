@@ -3,7 +3,7 @@
   "command": "cargo run -- -s /tmp/sxhkd-fifo",
   "profiles": {
     "gui": {
-      "command": "cargo run --bin gui -- -s /tmp/sxhkd-fifo"
+      "command": "cargo run --bin sxhkd-whichkey -- -s /tmp/sxhkd-fifo"
     },
     "cli": {
       "command": "cargo run -- -s /tmp/sxhkd-fifo"
