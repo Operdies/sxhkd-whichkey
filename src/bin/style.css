@@ -35,3 +35,7 @@ label#path {
   margin-left: 4px;
   margin-right: 4px;
 }
+label#not-shown {
+  font-style: italic;
+  color: #868fa9;
+}

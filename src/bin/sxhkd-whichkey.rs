@@ -21,49 +21,50 @@ fn build_grid(event: &KeyEvent) -> gtk::Grid {
     let triangle = "";
     let arrow = "";
 
-    let keys = &event.keys;
+    let current_hotkey = &event.keys.iter().map(|c| c.trim()).collect::<Vec<_>>();
+
+    let current_hotkey = current_hotkey.join(&format!(" {} ", arrow));
+    let current_hotkey = gtk::Label::new(Some(&current_hotkey));
+    current_hotkey.set_widget_name("path");
+    main_grid.attach(&current_hotkey, 0, 0, 1, 1);
+
+    let completion_grid = gtk::Grid::default();
+    completion_grid.set_widget_name("completion-grid");
+    let max_completions = 20;
     let config = &event.config;
-
-    let path = keys.join(&format!(" {} ", arrow));
-    let path = gtk::Label::new(Some(&path));
-    path.set_widget_name("path");
-    main_grid.attach(&path, 0, 0, 1, 1);
-
-    let g = gtk::Grid::default();
-    g.set_widget_name("completion-grid");
-    let limit = 20;
-    for (row, hk) in config.iter().enumerate().take(limit) {
+    for (row, hotkey) in config.iter().enumerate().take(max_completions) {
         let row = row as i32;
-        let path = hk
+        let remaining_hotkey = hotkey
             .chain
             .iter()
-            .map(|ch| ch.repr.as_ref())
+            .map(|ch| ch.repr.trim())
             .collect::<Vec<_>>();
 
-        let vj = vec_join(path, arrow);
+        let vj = vec_join(remaining_hotkey, arrow);
         for (i, ele) in vj.iter().enumerate() {
             let column = i as i32;
             let label = gtk::Label::new(Some(ele));
             label.set_widget_name("path");
-            g.attach(&label, column, row, 1, 1);
+            completion_grid.attach(&label, column, row, 1, 1);
         }
         let arrow = gtk::Label::new(Some(triangle));
-        g.attach(&arrow, 1 + vj.len() as i32, row, 1, 1);
-        let cmd_label = gtk::Label::new(Some(&hk.command));
+        completion_grid.attach(&arrow, 1 + vj.len() as i32, row, 1, 1);
+        let cmd_label = gtk::Label::new(Some(&hotkey.command));
         cmd_label.set_widget_name("command");
         cmd_label.set_halign(gtk::Align::Start);
-        g.attach(&cmd_label, 2 + vj.len() as i32, row, 1, 1);
+        completion_grid.attach(&cmd_label, 2 + vj.len() as i32, row, 1, 1);
     }
 
-    let s = gtk::Separator::new(gtk::Orientation::Horizontal);
-    main_grid.attach(&s, 0, 1, 1, 1);
-    main_grid.attach(&g, 0, 2, 1, 1);
-    let not_shown = (config.len() as i32) - (limit as i32);
+    let sep = gtk::Separator::new(gtk::Orientation::Horizontal);
+    main_grid.attach(&sep, 0, 1, 1, 1);
+    main_grid.attach(&completion_grid, 0, 2, 1, 1);
+    let not_shown = (config.len() as i32) - (max_completions as i32);
     if not_shown > 0 {
-        let s = gtk::Separator::new(gtk::Orientation::Horizontal);
-        main_grid.attach(&s, 0, 3, 1, 1);
-        let lab = gtk::Label::new(Some(&format!("({} options not shown)", not_shown)));
-        main_grid.attach(&lab, 0, 4, 1, 1);
+        let sep = gtk::Separator::new(gtk::Orientation::Horizontal);
+        main_grid.attach(&sep, 0, 3, 1, 1);
+        let label = gtk::Label::new(Some(&format!("{} options not shown", not_shown)));
+        label.set_widget_name("not-shown");
+        main_grid.attach(&label, 0, 4, 1, 1);
     }
     main_grid
 }
