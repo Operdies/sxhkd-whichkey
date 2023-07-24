@@ -130,45 +130,85 @@ pub struct Hotkey {
     pub cycle: Option<Cycle>,
 }
 
+#[derive(Debug)]
+enum Token {
+    Comment(String),
+    Quoted(String),
+    Word(String),
+}
+
+impl std::fmt::Display for Token {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            Token::Comment(c) => c.to_string(),
+            Token::Quoted(c) => format!("\"{}\"", c),
+            Token::Word(c) => c.to_string(),
+        };
+        f.write_str(&s)?;
+        Ok(())
+    }
+}
+
 impl Hotkey {
-    fn get_comment(&self) -> Option<&str> {
-        enum Q {
-            Quoted(char),
-            NotQuoted,
+    fn tokenize(s: &str) -> Vec<Token> {
+        let mut result = vec![];
+        let quotes = ['\'', '"', '`'];
+        let mut it = s.chars();
+
+        fn take_until_escaped(ch: char, it: &mut std::str::Chars<'_>) -> String {
+            let mut s = String::new();
+            let mut escaped = false;
+            for c in it.by_ref() {
+                if escaped {
+                    escaped = false;
+                    continue;
+                }
+                if c == '\\' {
+                    escaped = true;
+                    continue;
+                }
+                if ch == c {
+                    break;
+                }
+                s.push(c);
+            }
+            s
         }
 
-        let quotes = ['\'', '"', '`'];
-        let mut escaped = false;
-        let mut quote = Q::NotQuoted;
-        for (i, ch) in self.command.char_indices() {
-            if escaped {
-                escaped = false;
-                continue;
-            }
-            match quote {
-                Q::NotQuoted => match ch {
-                    '#' => return self.command.get(i + 1..),
-                    '\\' => escaped = true,
-                    _ => {
-                        if quotes.contains(&ch) {
-                            quote = Q::Quoted(ch)
-                        }
-                    }
-                },
-                Q::Quoted(c) => {
-                    if ch == c {
-                        quote = Q::NotQuoted;
-                    }
+        while let Some(ch) = it.next() {
+            match ch {
+                '#' => {
+                    result.push(Token::Comment(it.collect::<String>().trim().into()));
+                    break;
+                }
+                _ if quotes.contains(&ch) => {
+                    let s = take_until_escaped(ch, &mut it);
+                    result.push(Token::Quoted(s));
+                }
+                ' ' => continue,
+                _ => {
+                    let mut s = take_until_escaped(' ', &mut it);
+                    s.insert(0, ch);
+                    result.push(Token::Word(s));
                 }
             }
         }
-        None
+        result
     }
 
-    pub fn description(&self) -> &str {
-        match self.get_comment() {
-            Some(s) => s,
-            None => &self.command,
+    pub fn description(&self) -> String {
+        let tok = Self::tokenize(&self.command);
+        if let Some(Token::Comment(c)) = tok.last() {
+            let mut result = c.to_string();
+            for (i, v) in tok.iter().take(tok.len() - 1).enumerate() {
+                result = result.replace::<&str>(&format!("$({})", i), &v.to_string());
+            }
+            result
+        } else {
+            tok.into_iter()
+                .map(|t| t.to_string())
+                .collect::<Vec<String>>()
+                .join(" ")
         }
     }
 }
