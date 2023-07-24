@@ -24,6 +24,8 @@ super + c ; super + d : {a,b,c}
 Alt_L ; a ; @Alt_L ; @a
   123
 
-# Bug: Nested chain locking doesn't work (parsed correctly, but not executed)
-Super + a : b : c
-  456
+# Bug: This chord chain cannot be aborted while the rule below exists.
+super + comma : { p, b, comma, period }
+	bspc node -f @{parent,brother,first,second}
+super + {p,b,comma,period}
+	bspc node -f @{parent,brother,first,second}
