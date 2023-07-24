@@ -57,7 +57,7 @@ fn build_grid(event: &KeyEvent) -> gtk::Grid {
         }
         let arrow = gtk::Label::new(Some(triangle));
         completion_grid.attach(&arrow, 1 + widest_remaining as i32, row, 1, 1);
-        let cmd_label = gtk::Label::new(Some(&hotkey.command));
+        let cmd_label = gtk::Label::new(Some(hotkey.description()));
         cmd_label.set_widget_name("command");
         cmd_label.set_halign(gtk::Align::Start);
         completion_grid.attach(&cmd_label, 2 + widest_remaining as i32, row, 1, 1);

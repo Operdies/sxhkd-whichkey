@@ -130,6 +130,49 @@ pub struct Hotkey {
     pub cycle: Option<Cycle>,
 }
 
+impl Hotkey {
+    fn get_comment(&self) -> Option<&str> {
+        enum Q {
+            Quoted(char),
+            NotQuoted,
+        }
+
+        let quotes = ['\'', '"', '`'];
+        let mut escaped = false;
+        let mut quote = Q::NotQuoted;
+        for (i, ch) in self.command.char_indices() {
+            if escaped {
+                escaped = false;
+                continue;
+            }
+            match quote {
+                Q::NotQuoted => match ch {
+                    '#' => return self.command.get(i + 1..),
+                    '\\' => escaped = true,
+                    _ => {
+                        if quotes.contains(&ch) {
+                            quote = Q::Quoted(ch)
+                        }
+                    }
+                },
+                Q::Quoted(c) => {
+                    if ch == c {
+                        quote = Q::NotQuoted;
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    pub fn description(&self) -> &str {
+        match self.get_comment() {
+            Some(s) => s,
+            None => &self.command,
+        }
+    }
+}
+
 pub type Config = Vec<Hotkey>;
 
 impl Rustable<Config> for *mut hotkey_t {
@@ -139,9 +182,10 @@ impl Rustable<Config> for *mut hotkey_t {
             let mut head = self;
             while !head.is_null() {
                 let h = &*head;
+                let command = h.command.convert();
                 result.push(Hotkey {
                     chain: h.chain.to_rust(),
-                    command: h.command.convert(),
+                    command,
                     sync: h.sync,
                     cycle: h.cycle.to_rust(),
                 });
