@@ -149,31 +149,125 @@ impl std::fmt::Display for Token {
     }
 }
 
+#[derive(Debug)]
+struct ParsedComment {
+    pairs: Vec<(String, String)>,
+    remaining: String,
+}
+
 impl Hotkey {
+    fn read_word(whitespace: char, it: &mut std::str::Chars<'_>) -> Option<String> {
+        let quotes = ['\'', '"'];
+        // Skip leading spaces
+        let ch = it.find(|c| c.ne(&' '))?;
+        if quotes.contains(&ch) {
+            let quoted = Self::take_until_escaped(ch, it);
+            if it.next().is_some_and(|c| c == whitespace) {
+                return Some(quoted);
+            } else {
+                return None;
+            }
+        }
+        let mut s = String::new();
+        s.push(ch);
+        while let Some(ch) = it.next() {
+            if ch.eq(&'\\') {
+                if let Some(c) = it.next() {
+                    s.push(c);
+                    continue;
+                }
+            } else if ch.eq(&whitespace) {
+                return Some(s);
+            } else {
+                s.push(ch);
+            }
+        }
+        None
+    }
+
+    fn read_pairs(s: &str) -> ParsedComment {
+        let mut result = ParsedComment {
+            pairs: vec![],
+            remaining: Default::default(),
+        };
+        let mut it = s.chars();
+        loop {
+            let clone = it.clone();
+            let word = Self::read_word(':', &mut it);
+            let replacement = Self::read_word(' ', &mut it);
+            if word.is_none() || replacement.is_none() {
+                result.remaining = clone.collect();
+                return result;
+            }
+            result.pairs.push((word.unwrap(), replacement.unwrap()));
+        }
+    }
+
+    fn expand_comment(comment: String, tokens: Vec<Token>) -> String {
+        println!("Expanding comment: {}", &comment);
+        let mut pairs = Self::read_pairs(&comment);
+        println!("Found pairs: {:?}", &pairs);
+        for _ in 0..2 {
+            for (i, v) in tokens.iter().enumerate() {
+                let replacement = v.to_string();
+                let quotes: &[_] = &['\'', '"'];
+                let tr = replacement.trim_matches(quotes);
+                let mut mapping: Option<String> = None;
+                for (p, r) in pairs.pairs.iter() {
+                    if tr.eq(p) {
+                        mapping = Some(r.clone());
+                        break;
+                    }
+                }
+                if let Some(ref m) = mapping {
+                    println!("Mapped {} to {}", replacement, m);
+                } else {
+                    println!("No mapping for {}", replacement);
+                }
+                let next = pairs
+                    .remaining
+                    .replace::<&str>(&format!("$({})", i), &mapping.unwrap_or(replacement));
+                println!("Expanded: {} -> {}", pairs.remaining, next);
+                pairs.remaining = next;
+            }
+        }
+        pairs.remaining
+    }
+    fn describe(mut tokens: Vec<Token>) -> String {
+        if let Some(Token::Comment(_)) = tokens.last() {
+            let comment = tokens.pop().unwrap().to_string();
+            Self::expand_comment(comment, tokens)
+        } else {
+            tokens
+                .into_iter()
+                .map(|t| t.to_string())
+                .collect::<Vec<String>>()
+                .join(" ")
+        }
+    }
+
+    pub fn description(&self) -> String {
+        let tokens = Self::tokenize(&self.command);
+        Self::describe(tokens)
+    }
+
+    fn take_until_escaped(ch: char, it: &mut std::str::Chars<'_>) -> String {
+        let mut s = String::new();
+        while let Some(c) = it.next() {
+            if c == '\\' {
+                let _ = it.next(); // Skip next char
+            }
+            if ch == c {
+                break;
+            }
+            s.push(c);
+        }
+        s
+    }
     fn tokenize(s: &str) -> Vec<Token> {
         let mut result = vec![];
         let quotes = ['\'', '"', '`'];
         let mut it = s.chars();
-
-        fn take_until_escaped(ch: char, it: &mut std::str::Chars<'_>) -> String {
-            let mut s = String::new();
-            let mut escaped = false;
-            for c in it.by_ref() {
-                if escaped {
-                    escaped = false;
-                    continue;
-                }
-                if c == '\\' {
-                    escaped = true;
-                    continue;
-                }
-                if ch == c {
-                    break;
-                }
-                s.push(c);
-            }
-            s
-        }
 
         while let Some(ch) = it.next() {
             match ch {
@@ -182,34 +276,18 @@ impl Hotkey {
                     break;
                 }
                 _ if quotes.contains(&ch) => {
-                    let s = take_until_escaped(ch, &mut it);
+                    let s = Self::take_until_escaped(ch, &mut it);
                     result.push(Token::Quoted(s));
                 }
                 ' ' => continue,
                 _ => {
-                    let mut s = take_until_escaped(' ', &mut it);
+                    let mut s = Self::take_until_escaped(' ', &mut it);
                     s.insert(0, ch);
                     result.push(Token::Word(s));
                 }
             }
         }
         result
-    }
-
-    pub fn description(&self) -> String {
-        let tok = Self::tokenize(&self.command);
-        if let Some(Token::Comment(c)) = tok.last() {
-            let mut result = c.to_string();
-            for (i, v) in tok.iter().take(tok.len() - 1).enumerate() {
-                result = result.replace::<&str>(&format!("$({})", i), &v.to_string());
-            }
-            result
-        } else {
-            tok.into_iter()
-                .map(|t| t.to_string())
-                .collect::<Vec<String>>()
-                .join(" ")
-        }
     }
 }
 
