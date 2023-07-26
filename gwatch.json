@@ -5,6 +5,10 @@
     "gui": {
       "command": "cargo run --bin sxhkd-whichkey -- -s /tmp/sxhkd-fifo"
     },
+    "test": {
+      "command": "cargo test --test test -- --show-output --test-threads=1",
+      "window position": "right"
+    },
     "cli": {
       "command": "cargo run -- -s /tmp/sxhkd-fifo"
     }
