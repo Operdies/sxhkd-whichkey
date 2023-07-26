@@ -3,14 +3,14 @@ use std::{fs::File, io::BufReader};
 use clap::Parser;
 
 use super::{
-    bindings::Config,
+    bindings::Hotkeys,
     command::{self, FifoReader, Stroke},
-    config::parse_config,
+    config::load_hotkeys,
 };
 
 pub struct Subscriber {
     reader: FifoReader,
-    config: Config,
+    config: Hotkeys,
 }
 
 #[derive(Debug, Clone)]
@@ -27,11 +27,11 @@ pub struct CommandEvent {
 }
 #[derive(Debug, Clone)]
 pub struct KeyEvent {
-    pub config: Config,
+    pub config: Hotkeys,
     pub keys: Vec<String>,
 }
 
-fn get_valid_continuations(cfg: &Config, strokes: &[&str]) -> Config {
+fn get_valid_continuations(cfg: &Hotkeys, strokes: &[&str]) -> Hotkeys {
     let mut result = vec![];
     let n_strokes = strokes.len();
     for hk in cfg {
@@ -50,7 +50,7 @@ fn get_valid_continuations(cfg: &Config, strokes: &[&str]) -> Config {
 impl Default for Subscriber {
     fn default() -> Self {
         let args = crate::cmd::Config::parse();
-        let config = parse_config(args.config_path);
+        let config = load_hotkeys(args.config_path.as_deref());
 
         let file = File::open(args.status_fifo).unwrap();
         let reader = BufReader::new(file);
@@ -82,7 +82,7 @@ impl Iterator for Subscriber {
 }
 
 impl Subscriber {
-    pub fn new(reader: FifoReader, config: Config) -> Self {
+    pub fn new(reader: FifoReader, config: Hotkeys) -> Self {
         Self { reader, config }
     }
 
@@ -93,7 +93,7 @@ impl Subscriber {
             _ => false,
         }
     }
-    pub fn parse(stroke: &Stroke, cfg: &Config) -> Option<Event> {
+    pub fn parse(stroke: &Stroke, cfg: &Hotkeys) -> Option<Event> {
         match stroke {
             Stroke::Hotkey(ref h) => {
                 let keys: Vec<&str> = h.split(';').collect();

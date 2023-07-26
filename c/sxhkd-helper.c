@@ -90,23 +90,9 @@ void reload_cmd(void) {
     load_config(extra_confs[i]);
 }
 
-void init_globals(char *cfg) {
-  if (initialized) {
-    reload_cmd();
-    return;
-  }
+void load_or_reload(char *cfg) {
   int sz = strlen(cfg);
-  PRINTF("Config input string length: %d\n", sz);
   config_path = sz == 0 ? NULL : cfg;
-
-  // status_fifo must be assigned. Otherwise, the chord_t repr field will not be
-  // populated.
-  status_fifo = (FILE *)1;
-  mapping_count = 0;
-  timeout = TIMEOUT;
-  grabbed = false;
-  redir_fd = -1;
-  abort_keysym = ESCAPE_KEYSYM;
 
   if (config_path == NULL) {
     char *config_home = getenv(CONFIG_HOME_ENV);
@@ -119,6 +105,21 @@ void init_globals(char *cfg) {
   } else {
     snprintf(config_file, sizeof(config_file), "%s", config_path);
   }
+
+  if (initialized) {
+    PUTS("Reloading..");
+    reload_cmd();
+    PUTS("Reloaded!");
+    return;
+  }
+  // status_fifo must be assigned. Otherwise, the chord_t repr field will not be
+  // populated.
+  status_fifo = (FILE *)1;
+  mapping_count = 0;
+  timeout = TIMEOUT;
+  grabbed = false;
+  redir_fd = -1;
+  abort_keysym = ESCAPE_KEYSYM;
 
   setup();
   get_standard_keysyms();

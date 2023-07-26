@@ -11,10 +11,10 @@ trait Rustable<T2> {
 type xcb_keysym_t = u32;
 type xcb_button_t = u8;
 
-pub fn get_config(file: Option<String>) -> Config {
+pub fn get_config(file: Option<&str>) -> Hotkeys {
     unsafe {
-        let c_file = CString::new(file.unwrap_or(String::from(""))).unwrap();
-        init_globals(c_file.into_raw());
+        let c_file = CString::new(file.unwrap_or("")).unwrap();
+        load_or_reload(c_file.into_raw());
         hotkeys_head.to_rust()
     }
 }
@@ -162,7 +162,8 @@ impl Hotkey {
         let ch = it.find(|c| c.ne(&' '))?;
         if quotes.contains(&ch) {
             let quoted = Self::take_until_escaped(ch, it);
-            if it.next().is_some_and(|c| c == whitespace) {
+            let n = it.next();
+            if n.is_none() || n.is_some_and(|c| c == whitespace) {
                 return Some(quoted);
             } else {
                 return None;
@@ -182,7 +183,11 @@ impl Hotkey {
                 s.push(ch);
             }
         }
-        None
+        if s.is_empty() {
+            None
+        } else {
+            Some(s)
+        }
     }
 
     fn read_pairs(s: &str) -> ParsedComment {
@@ -203,7 +208,7 @@ impl Hotkey {
         }
     }
 
-    fn expand_comment(comment: String, tokens: Vec<Token>) -> String {
+    fn expand_comment(comment: String, tokens: &[Token]) -> String {
         let mut pairs = Self::read_pairs(&comment);
         for _ in 0..2 {
             for (i, v) in tokens.iter().enumerate() {
@@ -229,14 +234,16 @@ impl Hotkey {
     fn describe(mut tokens: Vec<Token>) -> String {
         if let Some(Token::Comment(_)) = tokens.last() {
             let comment = tokens.pop().unwrap().to_string();
-            Self::expand_comment(comment, tokens)
-        } else {
-            tokens
-                .into_iter()
-                .map(|t| t.to_string())
-                .collect::<Vec<String>>()
-                .join(" ")
+            let expansion = Self::expand_comment(comment, &tokens);
+            if !expansion.is_empty() {
+                return expansion;
+            }
         }
+        tokens
+            .into_iter()
+            .map(|t| t.to_string())
+            .collect::<Vec<String>>()
+            .join(" ")
     }
 
     pub fn description(&self) -> String {
@@ -284,10 +291,10 @@ impl Hotkey {
     }
 }
 
-pub type Config = Vec<Hotkey>;
+pub type Hotkeys = Vec<Hotkey>;
 
-impl Rustable<Config> for *mut hotkey_t {
-    fn to_rust(self) -> Config {
+impl Rustable<Hotkeys> for *mut hotkey_t {
+    fn to_rust(self) -> Hotkeys {
         let mut result = vec![];
         unsafe {
             let mut head = self;
@@ -341,7 +348,7 @@ fn conv(u: &[u8]) -> String {
 }
 
 extern "C" {
-    pub fn init_globals(cfg: *mut ::std::os::raw::c_char);
+    pub fn load_or_reload(cfg: *mut ::std::os::raw::c_char);
     static mut hotkeys_head: *mut hotkey_t;
     // pub static mut hotkeys_tail: *mut hotkey_t;
 }

@@ -1,0 +1,4 @@
+imports_granularity = "module"
+remove_nested_parens = true
+reorder_imports = true
+group_imports = "one"

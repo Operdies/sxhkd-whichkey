@@ -127,6 +127,7 @@ fn build_ui(application: &gtk::Application) {
             Event::ChainEnded => {
                 window.hide();
             }
+            Event::CommandEvent(c) => println!("{:?}", c),
             _ => (),
         };
         Continue(true)
