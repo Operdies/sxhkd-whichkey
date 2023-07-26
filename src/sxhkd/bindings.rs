@@ -204,9 +204,7 @@ impl Hotkey {
     }
 
     fn expand_comment(comment: String, tokens: Vec<Token>) -> String {
-        println!("Expanding comment: {}", &comment);
         let mut pairs = Self::read_pairs(&comment);
-        println!("Found pairs: {:?}", &pairs);
         for _ in 0..2 {
             for (i, v) in tokens.iter().enumerate() {
                 let replacement = v.to_string();
@@ -219,15 +217,10 @@ impl Hotkey {
                         break;
                     }
                 }
-                if let Some(ref m) = mapping {
-                    println!("Mapped {} to {}", replacement, m);
-                } else {
-                    println!("No mapping for {}", replacement);
-                }
+
                 let next = pairs
                     .remaining
                     .replace::<&str>(&format!("$({})", i), &mapping.unwrap_or(replacement));
-                println!("Expanded: {} -> {}", pairs.remaining, next);
                 pairs.remaining = next;
             }
         }
