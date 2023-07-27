@@ -4,6 +4,8 @@
 
 use std::ffi::CString;
 
+use super::parse::enrich;
+
 trait Rustable<T2> {
     fn to_rust(self) -> T2;
 }
@@ -68,7 +70,7 @@ pub struct Chord {
     pub event_type: u8,
     pub replay_event: bool,
     pub lock_chain: bool,
-    // TODO: Figur eout what this is used for
+    // TODO: Figure out what this is used for
     pub more: Option<Vec<Chord>>,
 }
 
@@ -130,167 +132,11 @@ pub struct Hotkey {
     pub cycle: Option<Cycle>,
 }
 
-#[derive(Debug)]
-enum Token {
-    Comment(String),
-    Quoted(String),
-    Word(String),
-}
-
-impl std::fmt::Display for Token {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let s = match self {
-            Token::Comment(c) => c.to_string(),
-            Token::Quoted(c) => format!("\"{}\"", c),
-            Token::Word(c) => c.to_string(),
-        };
-        f.write_str(&s)?;
-        Ok(())
-    }
-}
-
-#[derive(Debug)]
-struct ParsedComment {
-    pairs: Vec<(String, String)>,
-    remaining: String,
-}
-
 impl Hotkey {
-    fn read_word(whitespace: char, it: &mut std::str::Chars<'_>) -> Option<String> {
-        let quotes = ['\'', '"'];
-        // Skip leading spaces
-        let ch = it.find(|c| c.ne(&' '))?;
-        if quotes.contains(&ch) {
-            let quoted = Self::take_until_escaped(ch, it);
-            let n = it.next();
-            if n.is_none() || n.is_some_and(|c| c == whitespace) {
-                return Some(quoted);
-            } else {
-                return None;
-            }
-        }
-        let mut s = String::new();
-        s.push(ch);
-        while let Some(ch) = it.next() {
-            if ch.eq(&'\\') {
-                if let Some(c) = it.next() {
-                    s.push(c);
-                    continue;
-                }
-            } else if ch.eq(&whitespace) {
-                return Some(s);
-            } else {
-                s.push(ch);
-            }
-        }
-        if s.is_empty() {
-            None
-        } else {
-            Some(s)
-        }
-    }
-
-    fn read_pairs(s: &str) -> ParsedComment {
-        let mut result = ParsedComment {
-            pairs: vec![],
-            remaining: Default::default(),
-        };
-        let mut it = s.chars();
-        loop {
-            let clone = it.clone();
-            let word = Self::read_word(':', &mut it);
-            let replacement = Self::read_word(' ', &mut it);
-            if word.is_none() || replacement.is_none() {
-                result.remaining = clone.collect();
-                return result;
-            }
-            result.pairs.push((word.unwrap(), replacement.unwrap()));
-        }
-    }
-
-    fn expand_comment(comment: String, tokens: &[Token]) -> String {
-        let mut pairs = Self::read_pairs(&comment);
-        for _ in 0..2 {
-            for (i, v) in tokens.iter().enumerate() {
-                let replacement = v.to_string();
-                let quotes: &[_] = &['\'', '"'];
-                let tr = replacement.trim_matches(quotes);
-                let mut mapping: Option<String> = None;
-                for (p, r) in pairs.pairs.iter() {
-                    if tr.eq(p) {
-                        mapping = Some(r.clone());
-                        break;
-                    }
-                }
-
-                let next = pairs
-                    .remaining
-                    .replace::<&str>(&format!("$({})", i), &mapping.unwrap_or(replacement));
-                pairs.remaining = next;
-            }
-        }
-        pairs.remaining
-    }
-    fn describe(mut tokens: Vec<Token>) -> String {
-        if let Some(Token::Comment(_)) = tokens.last() {
-            let comment = tokens.pop().unwrap().to_string();
-            let expansion = Self::expand_comment(comment, &tokens);
-            if !expansion.is_empty() {
-                return expansion;
-            }
-        }
-        tokens
-            .into_iter()
-            .map(|t| t.to_string())
-            .collect::<Vec<String>>()
-            .join(" ")
-    }
-
     pub fn description(&self) -> String {
-        let tokens = Self::tokenize(&self.command);
-        Self::describe(tokens)
-    }
-
-    fn take_until_escaped(ch: char, it: &mut std::str::Chars<'_>) -> String {
-        let mut s = String::new();
-        while let Some(c) = it.next() {
-            if c == '\\' {
-                let _ = it.next(); // Skip next char
-            }
-            if ch == c {
-                break;
-            }
-            s.push(c);
-        }
-        s
-    }
-    fn tokenize(s: &str) -> Vec<Token> {
-        let mut result = vec![];
-        let quotes = ['\'', '"', '`'];
-        let mut it = s.chars();
-
-        while let Some(ch) = it.next() {
-            match ch {
-                '#' => {
-                    result.push(Token::Comment(it.collect::<String>().trim().into()));
-                    break;
-                }
-                _ if quotes.contains(&ch) => {
-                    let s = Self::take_until_escaped(ch, &mut it);
-                    result.push(Token::Quoted(s));
-                }
-                ' ' => continue,
-                _ => {
-                    let mut s = Self::take_until_escaped(' ', &mut it);
-                    s.insert(0, ch);
-                    result.push(Token::Word(s));
-                }
-            }
-        }
-        result
+        enrich(&self.command)
     }
 }
-
 pub type Hotkeys = Vec<Hotkey>;
 
 impl Rustable<Hotkeys> for *mut hotkey_t {
@@ -350,5 +196,4 @@ fn conv(u: &[u8]) -> String {
 extern "C" {
     pub fn load_or_reload(cfg: *mut ::std::os::raw::c_char);
     static mut hotkeys_head: *mut hotkey_t;
-    // pub static mut hotkeys_tail: *mut hotkey_t;
 }

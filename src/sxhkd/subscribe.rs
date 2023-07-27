@@ -118,7 +118,8 @@ impl Subscriber {
     where
         F: Fn(Event) -> bool,
     {
-        // TODO: Implement this in a less hardcoded way
+        // TODO: Implement this in a less hardcoded way -- get sxhkd pid and monitor what
+        // interrupts it receives?
         let mut restart = false;
         for stroke in self.reader {
             if let Some(event) = Self::parse(&stroke, &self.config) {

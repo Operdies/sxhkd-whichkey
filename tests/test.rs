@@ -34,7 +34,7 @@ super + a
         let ch = hk.chain.first().unwrap();
         assert_eq!(ch.repr, "super + a");
         assert_eq!(ch.keysym, 'a' as u32);
-        assert_eq!("world hello", hk.description())
+        assert_eq!(hk.description(), "world hello")
     }
     Ok(())
 }
@@ -71,8 +71,7 @@ super + c ; {1-2} ; { c, d }
     let hk = &hotkeys[3];
     assert_eq!(hk.description(), "Delta \"Delta \"$(2)\"\"");
     for hk in hotkeys {
-        assert_eq!(3, hk.chain.len());
-        println!("{}", hk.description());
+        assert_eq!(hk.chain.len(), 3);
     }
     Ok(())
 }
@@ -94,26 +93,23 @@ fn test_circular_expansion() -> Result<()> {
     echo a b # b:'hello $(1)' a:'world $(2)' $(1)
 # Test order of mapping expansion 3
 4
-    echo a b # a:'hello $(2)' b:'world $(1)' $(1) $(2)
+    echo a b dud # a:'hello $(2)' b:'world $(1)' $(1) $(2) $(3)
 # Test index error expansion
 5
     echo hello # $(2)
 ";
     let hotkeys = load_config(cfg)?;
-    assert_eq!(6, hotkeys.len());
-    let opt_2 = "hello world $(1)";
-    let opt_3 = "world hello world $(2)";
+    assert_eq!(hotkeys.len(), 6);
     let expected = vec![
-        String::from("hello forward forward"),
-        String::from("hello backward backward"),
-        opt_2.to_string(),
-        opt_3.to_string(),
-        format!("{} {}", opt_2, opt_3),
-        String::from("$(2)"),
+        "hello forward forward",
+        "hello backward backward",
+        "hello world hello $(2)",
+        "world hello $(1)",
+        "hello world hello $(2) world hello $(2) dud",
+        "$(2)",
     ];
     for (hk, expected) in hotkeys.iter().zip(expected) {
         assert_eq!(hk.description(), expected);
-        println!("Passed: {:?}", hk.chain[0].repr);
     }
     Ok(())
 }
@@ -130,10 +126,10 @@ super + { space, shift + space } : {1-3}
   $(1)
 ";
     let hotkeys = load_config(cfg)?;
-    assert_eq!(6, hotkeys.len());
-    assert_eq!("Switch to first workspace", hotkeys[0].description());
-    assert_eq!("Move node to first workspace", hotkeys[1].description());
-    assert_eq!("Move node to second workspace", hotkeys[3].description());
-    assert_eq!("Switch to third workspace", hotkeys[4].description());
+    assert_eq!(hotkeys.len(), 6);
+    assert_eq!(hotkeys[0].description(), "Switch to first workspace");
+    assert_eq!(hotkeys[1].description(), "Move node to first workspace");
+    assert_eq!(hotkeys[3].description(), "Move node to second workspace");
+    assert_eq!(hotkeys[4].description(), "Switch to third workspace");
     Ok(())
 }
