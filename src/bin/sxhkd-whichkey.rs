@@ -1,80 +1,121 @@
+use std::hash::Hash;
+
 use sxhkd_whichkey::sxhkd::subscribe::{Event, KeyEvent, Subscriber};
+use sxhkd_whichkey::sxhkd::Hotkey;
 
 use gtk::glib::MainContext;
 use gtk::{gdk, glib, prelude::*, ApplicationWindow};
 
-fn build_grid(event: &KeyEvent) -> gtk::Grid {
-    fn vec_join<T>(v: Vec<T>, sep: T) -> Vec<T>
-    where
-        T: Clone,
-    {
-        let mut result = vec![];
-        for item in v {
-            result.push(item);
-            result.push(sep.clone());
-        }
-        result.pop();
-        result
+fn group_by<T, P, T2>(input: Vec<T>, selector: P) -> Vec<Vec<T>>
+where
+    T2: PartialOrd + Eq + Hash + ?Sized,
+    P: Fn(&T) -> &T2,
+{
+    let mut result: Vec<Vec<T>> = vec![];
+    for item in input.into_iter() {
+        let key_1 = selector(&item);
+        let pos = result.iter().position(|p| {
+            let key_2 = selector(&p[0]);
+            std::cmp::Ordering::Equal == key_1.partial_cmp(key_2).unwrap()
+        });
+        let idx = if let Some(i) = pos {
+            i
+        } else {
+            result.push(vec![]);
+            result.len() - 1
+        };
+        result[idx].push(item);
     }
+    result
+}
+
+fn build_grid(event: &KeyEvent) -> gtk::Grid {
     let main_grid = gtk::Grid::builder().build();
 
     let triangle = "";
     let arrow = "";
 
-    let current_hotkey = &event.keys.iter().map(|c| c.trim()).collect::<Vec<_>>();
+    let window_title = &event
+        .config
+        .iter()
+        .find_map(|hk| hk.title.clone())
+        .unwrap_or_else(|| {
+            event
+                .keys
+                .iter()
+                .map(|c| c.repr.clone())
+                .collect::<Vec<_>>()
+                .join(&format!(" {} ", arrow))
+        });
 
-    let current_hotkey = current_hotkey.join(&format!(" {} ", arrow));
-    let current_hotkey = gtk::Label::new(Some(&current_hotkey));
+    let current_hotkey = gtk::Label::new(Some(window_title));
     current_hotkey.set_widget_name("path");
-    main_grid.attach(&current_hotkey, 0, 0, 1, 1);
 
-    let completion_grid = gtk::Grid::default();
-    completion_grid.set_widget_name("completion-grid");
-    let max_completions = 20;
-    let config = &event.config;
-    let widest_remaining = config.iter().fold(0, |acc, elem| {
-        let width = (elem.chain.len() * 2) - 1;
-        if width > acc {
-            width
-        } else {
-            acc
+    fn selector(hotkey: &Hotkey) -> &str {
+        hotkey.chain[0].repr.trim()
+    }
+
+    let grouped = group_by(event.config.clone(), selector);
+    let chunks = grouped.chunks(10);
+    let n_chunks = chunks.len() as i32;
+
+    for (column, chunk) in chunks.enumerate() {
+        let column = column as i32;
+        let completion_grid = gtk::Grid::default();
+        completion_grid.set_widget_name("completion-grid");
+        main_grid.attach(&completion_grid, column * 2, 2, 1, 1);
+        if column != n_chunks - 1 {
+            let sep = gtk::Separator::new(gtk::Orientation::Horizontal);
+            main_grid.attach(&sep, 1 + column * 2, 2, 1, 1);
         }
-    });
 
-    for (row, hotkey) in config.iter().enumerate().take(max_completions) {
-        let row = row as i32;
-        let remaining_hotkey = hotkey
-            .chain
-            .iter()
-            .map(|ch| ch.repr.trim())
-            .collect::<Vec<_>>();
+        for (row, group) in chunk.iter().enumerate() {
+            let row = row as i32;
 
-        let vj = vec_join(remaining_hotkey, arrow);
-        for (i, ele) in vj.iter().enumerate() {
-            let column = i as i32;
-            let label = gtk::Label::new(Some(ele));
-            label.set_widget_name("path");
-            completion_grid.attach(&label, column, row, 1, 1);
+            let (keys, desc) = if group.len() == 1 {
+                // There is exactly one continuation -- Show the expanded command
+                let hotkey = &group[0];
+                let continuation = hotkey
+                    .chain
+                    .iter()
+                    .map(|ch| ch.repr.trim())
+                    .collect::<Vec<_>>()
+                    .join(&format!(" {} ", arrow));
+                let command = hotkey.description();
+                let continuation = gtk::Label::new(Some(&continuation));
+                continuation.set_widget_name("path");
+                let command = gtk::Label::new(Some(&command));
+                command.set_widget_name("command");
+                (continuation, command)
+            } else {
+                // There are multiple continuations in this chain -- show each continuation
+                let continuation = group[0].chain[0].repr.trim().to_string();
+                let command = group
+                    .iter()
+                    .map(|g| g.chain.get(1))
+                    .filter(|x| x.is_some())
+                    .map(|s| s.unwrap().repr.trim())
+                    .collect::<Vec<_>>()
+                    .join(" | ");
+                let command = command.to_string();
+                let continuation = gtk::Label::new(Some(&continuation));
+                continuation.set_widget_name("path");
+                let command = gtk::Label::new(Some(&command));
+                command.set_widget_name("path");
+                (continuation, command)
+            };
+            keys.set_halign(gtk::Align::End);
+            completion_grid.attach(&keys, 0, row, 1, 1);
+            let triangle = gtk::Label::new(Some(triangle));
+            completion_grid.attach(&triangle, 1, row, 1, 1);
+            desc.set_halign(gtk::Align::Start);
+            completion_grid.attach(&desc, 2, row, 1, 1);
         }
-        let arrow = gtk::Label::new(Some(triangle));
-        completion_grid.attach(&arrow, 1 + widest_remaining as i32, row, 1, 1);
-        let cmd_label = gtk::Label::new(Some(&hotkey.description()));
-        cmd_label.set_widget_name("command");
-        cmd_label.set_halign(gtk::Align::Start);
-        completion_grid.attach(&cmd_label, 2 + widest_remaining as i32, row, 1, 1);
     }
 
     let sep = gtk::Separator::new(gtk::Orientation::Horizontal);
-    main_grid.attach(&sep, 0, 1, 1, 1);
-    main_grid.attach(&completion_grid, 0, 2, 1, 1);
-    let not_shown = (config.len() as i32) - (max_completions as i32);
-    if not_shown > 0 {
-        let sep = gtk::Separator::new(gtk::Orientation::Horizontal);
-        main_grid.attach(&sep, 0, 3, 1, 1);
-        let label = gtk::Label::new(Some(&format!("{} options not shown", not_shown)));
-        label.set_widget_name("not-shown");
-        main_grid.attach(&label, 0, 4, 1, 1);
-    }
+    main_grid.attach(&sep, 0, 1, n_chunks * 2 - 1, 1);
+    main_grid.attach(&current_hotkey, 0, 0, n_chunks * 2 - 1, 1);
     main_grid
 }
 

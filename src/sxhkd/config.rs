@@ -1,6 +1,5 @@
-use super::bindings::*;
-use crate::sxhkd::bindings;
+use super::types::*;
 
-pub fn load_hotkeys(file: Option<&str>) -> Hotkeys {
-    bindings::get_config(file)
+pub fn load_hotkeys_rhkd(file: Option<&str>) -> anyhow::Result<Hotkeys> {
+    super::parse::get_config(file)
 }

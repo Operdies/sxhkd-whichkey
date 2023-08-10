@@ -1,16 +1,17 @@
 {
   "$schema": "https://raw.githubusercontent.com/Operdies/gwatch.nvim/main/schema.json",
-  "command": "cargo run -- -s /tmp/sxhkd-fifo",
+  "command": "cargo test --lib -- --show-output",
+  "window position": "right",
   "profiles": {
     "gui": {
       "command": "cargo run --bin sxhkd-whichkey -- -s /tmp/sxhkd-fifo"
     },
-    "test": {
-      "command": "cargo test --test test -- --show-output --test-threads=1",
+    "test-parser": {
+      "command": "cargo test --lib -- --show-output",
       "window position": "right"
     },
-    "cli": {
-      "command": "cargo run -- -s /tmp/sxhkd-fifo"
+    "rhkd": {
+      "command": "cargo run --bin rhkd"
     }
   }
 }

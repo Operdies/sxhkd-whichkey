@@ -1,3 +1,7 @@
+#[macro_use]
+extern crate lazy_static;
+
+pub mod keyboard;
 pub mod sxhkd;
 
 pub mod cmd {

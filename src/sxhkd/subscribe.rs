@@ -3,9 +3,10 @@ use std::{fs::File, io::BufReader};
 use clap::Parser;
 
 use super::{
-    bindings::Hotkeys,
     command::{self, FifoReader, Stroke},
-    config::load_hotkeys,
+    config::load_hotkeys_rhkd,
+    parse::Chord,
+    types::Hotkeys,
 };
 
 pub struct Subscriber {
@@ -28,17 +29,22 @@ pub struct CommandEvent {
 #[derive(Debug, Clone)]
 pub struct KeyEvent {
     pub config: Hotkeys,
-    pub keys: Vec<String>,
+    pub keys: Vec<Chord>,
 }
 
-fn get_valid_continuations(cfg: &Hotkeys, strokes: &[&str]) -> Hotkeys {
+fn get_valid_continuations(cfg: &Hotkeys, strokes: &[Chord]) -> Hotkeys {
     let mut result = vec![];
     let n_strokes = strokes.len();
     for hk in cfg {
         if hk.chain.len() <= n_strokes {
             continue;
         }
-        if hk.chain.iter().zip(strokes).all(|e| e.0.repr.eq(e.1)) {
+        if hk
+            .chain
+            .iter()
+            .zip(strokes)
+            .all(|(chain, stroke)| chain.repr.eq(&stroke.repr))
+        {
             let mut hk = hk.clone();
             hk.chain = hk.chain.into_iter().skip(n_strokes).collect();
             result.push(hk);
@@ -50,7 +56,7 @@ fn get_valid_continuations(cfg: &Hotkeys, strokes: &[&str]) -> Hotkeys {
 impl Default for Subscriber {
     fn default() -> Self {
         let args = crate::cmd::Config::parse();
-        let config = load_hotkeys(args.config_path.as_deref());
+        let config = load_hotkeys_rhkd(args.config_path.as_deref()).unwrap();
 
         let file = File::open(args.status_fifo).unwrap();
         let reader = BufReader::new(file);
@@ -65,7 +71,6 @@ impl Iterator for Subscriber {
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             let next = self.reader.next();
-
             match next {
                 Some(ref e) => {
                     if Self::is_restart(e) {
@@ -96,14 +101,17 @@ impl Subscriber {
     pub fn parse(stroke: &Stroke, cfg: &Hotkeys) -> Option<Event> {
         match stroke {
             Stroke::Hotkey(ref h) => {
-                let keys: Vec<&str> = h.split(';').collect();
-                let continuations = get_valid_continuations(cfg, &keys);
+                let Ok(chords) = super::parse::parse_chord_chain(h) else {
+                    println!("Failed to parse hotkey from '{}'", h);
+                    return None;
+                };
+                let continuations = get_valid_continuations(cfg, &chords);
                 if continuations.is_empty() {
                     None
                 } else {
                     Some(Event::KeyEvent(KeyEvent {
                         config: continuations,
-                        keys: keys.iter().map(|c| c.to_string()).collect(),
+                        keys: chords,
                     }))
                 }
             }
@@ -134,7 +142,6 @@ impl Subscriber {
         }
 
         if restart {
-            println!("Reloaded config!");
             Self::default().register(callback)
         }
     }
