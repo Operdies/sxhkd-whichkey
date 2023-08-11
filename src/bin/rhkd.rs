@@ -1,10 +1,10 @@
 #![allow(unused)]
 use lazy_static::lazy_static;
 use nix::sys::signal::Signal::SIGTERM;
-use sxhkd_whichkey::keyboard;
-use sxhkd_whichkey::keyboard::Keyboard;
-use sxhkd_whichkey::sxhkd::config;
-use sxhkd_whichkey::sxhkd::Hotkey;
+use rhkd::keyboard;
+use rhkd::keyboard::Keyboard;
+use rhkd::parser::config;
+use rhkd::parser::Hotkey;
 use xcb::x::Event::*;
 use xcb::x::ModMask;
 

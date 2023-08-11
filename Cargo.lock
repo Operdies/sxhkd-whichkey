@@ -745,6 +745,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e5ea92a5b6195c6ef2a0295ea818b312502c6fc94dde986c5553242e18fd4ce2"
 
 [[package]]
+name = "rhkd"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "gtk",
+ "lazy_static",
+ "nix",
+ "regex",
+ "signal-hook",
+ "xcb",
+]
+
+[[package]]
 name = "rustc_version"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -832,20 +846,6 @@ name = "strsim"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "73473c0e59e6d5812c5dfe2a064a6444949f089e20eec9a2e5506596494e4623"
-
-[[package]]
-name = "sxhkd-whichkey"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "gtk",
- "lazy_static",
- "nix",
- "regex",
- "signal-hook",
- "xcb",
-]
 
 [[package]]
 name = "syn"

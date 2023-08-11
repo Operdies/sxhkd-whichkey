@@ -1,10 +1,17 @@
 use std::hash::Hash;
 
-use sxhkd_whichkey::parser::subscribe::{Event, KeyEvent, Subscriber};
-use sxhkd_whichkey::parser::Hotkey;
+use rhkd::parser::subscribe::{Event, KeyEvent, Subscriber};
+use rhkd::parser::Hotkey;
 
-use gtk::glib::MainContext;
-use gtk::{gdk, glib, prelude::*, ApplicationWindow};
+use gtk::{
+    gdk,
+    glib::{self, MainContext},
+    prelude::{
+        ApplicationExt, ApplicationExtManual, BinExt, ContainerExt, Continue, CssProviderExt,
+        GridExt, Inhibit, WidgetExt,
+    },
+    ApplicationWindow,
+};
 
 fn group_by<T, P, T2>(input: Vec<T>, selector: P) -> Vec<Vec<T>>
 where

@@ -1,14 +1,14 @@
 [package]
-default-run = "sxhkd-whichkey"
-name = "sxhkd-whichkey"
+default-run = "rhkd"
+name = "rhkd"
 version = "0.1.0"
 edition = "2021"
 
 [[bin]]
-name = "sxhkd-whichkey"
+name = "rhkd-whichkey"
 
 [[bin]]
-name = "sxhkd-whichkey-cli"
+name = "rhkc"
 
 [profile.release]
 strip = true
@@ -18,8 +18,7 @@ anyhow = "1.0.72"
 clap = { version = "4.3.11", features = ["derive"] }
 gtk = { version = "0.17.1", features = ["v3_24"] }
 lazy_static = "1.4.0"
-nix = { version = "0.26.2", features = ["signal"] }
+nix = { version = "0.26.2" }
 regex = "1.9.1"
 signal-hook = "0.3.17"
 xcb = { version = "1.2.2" }
-
