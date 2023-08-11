@@ -1,4 +1,4 @@
-use crate::{keyboard, keyboard::keysyms, sxhkd::parse::permutator::Permute};
+use crate::{keyboard, keyboard::keysyms, parser::permutator::Permute};
 pub use xcb::x::ModMask;
 
 use super::*;

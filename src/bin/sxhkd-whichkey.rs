@@ -1,7 +1,7 @@
 use std::hash::Hash;
 
-use sxhkd_whichkey::sxhkd::subscribe::{Event, KeyEvent, Subscriber};
-use sxhkd_whichkey::sxhkd::Hotkey;
+use sxhkd_whichkey::parser::subscribe::{Event, KeyEvent, Subscriber};
+use sxhkd_whichkey::parser::Hotkey;
 
 use gtk::glib::MainContext;
 use gtk::{gdk, glib, prelude::*, ApplicationWindow};
@@ -33,6 +33,8 @@ fn build_grid(event: &KeyEvent) -> gtk::Grid {
     let main_grid = gtk::Grid::builder().build();
 
     let triangle = "";
+    #[allow(unused)]
+    let lock = "";
     let arrow = "";
 
     let window_title = &event
@@ -40,12 +42,15 @@ fn build_grid(event: &KeyEvent) -> gtk::Grid {
         .iter()
         .find_map(|hk| hk.title.clone())
         .unwrap_or_else(|| {
-            event
-                .keys
-                .iter()
-                .map(|c| c.repr.clone())
-                .collect::<Vec<_>>()
-                .join(&format!(" {} ", arrow))
+            let join = "  ";
+            let mut title = String::new();
+            for (i, chord) in event.keys.iter().enumerate() {
+                title.push_str(&chord.repr);
+                if i != (event.keys.len() - 1) {
+                    title.push_str(join);
+                }
+            }
+            title
         });
 
     let current_hotkey = gtk::Label::new(Some(window_title));
@@ -106,7 +111,12 @@ fn build_grid(event: &KeyEvent) -> gtk::Grid {
             };
             keys.set_halign(gtk::Align::End);
             completion_grid.attach(&keys, 0, row, 1, 1);
-            let triangle = gtk::Label::new(Some(triangle));
+            let join_symbol = if group[0].chain[0].lock_chain.is_locking() {
+                lock
+            } else {
+                triangle
+            };
+            let triangle = gtk::Label::new(Some(join_symbol));
             completion_grid.attach(&triangle, 1, row, 1, 1);
             desc.set_halign(gtk::Align::Start);
             completion_grid.attach(&desc, 2, row, 1, 1);

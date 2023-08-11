@@ -1,4 +1,4 @@
-use super::{ChainMode, ConfigParseError, ParseResult, Token, TokenRange};
+use super::{ChainMode, ConfigParseError, Token, TokenRange};
 use anyhow::Result;
 
 pub struct Scanner<'a> {
@@ -7,7 +7,7 @@ pub struct Scanner<'a> {
 }
 
 impl<'a> Scanner<'a> {
-    pub fn scan(input: &'a [u8]) -> ParseResult<Vec<Token>> {
+    pub fn scan(input: &'a [u8]) -> Result<Vec<Token>> {
         Scanner { cursor: 0, input }.get_token_stream()
     }
 
@@ -43,7 +43,7 @@ impl<'a> Scanner<'a> {
     }
 
     // Shorthand for adding the single character token under the cursor
-    fn add_unit_and_advance(&mut self) -> ParseResult<Token> {
+    fn add_unit_and_advance(&mut self) -> Result<Token> {
         let range = self.cursor;
         self.cursor += 1;
         match self.input[self.cursor - 1] {
@@ -56,7 +56,7 @@ impl<'a> Scanner<'a> {
             )))?,
         }
     }
-    fn parse_group<F>(&mut self, maker: F) -> ParseResult<Vec<Token>>
+    fn parse_group<F>(&mut self, maker: F) -> Result<Vec<Token>>
     where
         F: Fn(TokenRange, &[u8]) -> Result<Vec<Token>>,
     {
@@ -86,7 +86,7 @@ impl<'a> Scanner<'a> {
         Err(ConfigParseError::UnterminatedGroup(tokens.swap_remove(0)))?
     }
 
-    fn parse_command(&mut self) -> ParseResult<Vec<Token>> {
+    fn parse_command(&mut self) -> Result<Vec<Token>> {
         // Command text will be sent directly to the shell after any substitution has been
         // performed. Whitespace may or may not be significant, depending on the shell. We should
         // make no assumptions here.
@@ -114,7 +114,7 @@ impl<'a> Scanner<'a> {
         Ok(tokens)
     }
 
-    fn parse_binding(&mut self) -> ParseResult<Vec<Token>> {
+    fn parse_binding(&mut self) -> Result<Vec<Token>> {
         let mut tokens = vec![];
         let unit_tokens: &[u8] = &[b'{', b'}', b':', b';', b'+'];
         while self.cursor < self.input.len() {
@@ -177,7 +177,7 @@ impl<'a> Scanner<'a> {
         Ok(tokens)
     }
 
-    fn parse_comment(&mut self) -> ParseResult<Vec<Token>> {
+    fn parse_comment(&mut self) -> Result<Vec<Token>> {
         let mut result = vec![];
         loop {
             // Consume any leading whitespace
@@ -197,7 +197,7 @@ impl<'a> Scanner<'a> {
         Ok(result)
     }
 
-    fn get_token_stream(mut self) -> ParseResult<Vec<Token>> {
+    fn get_token_stream(mut self) -> Result<Vec<Token>> {
         self.cursor = 0;
         let mut result = vec![];
         while self.cursor < self.input.len() {

@@ -1,10 +1,4 @@
-// The following prefixes are defined in sxhkd.h:
-// #define HOTKEY_PREFIX       'H'
-// #define COMMAND_PREFIX      'C'
-// #define BEGIN_CHAIN_PREFIX  'B'
-// #define END_CHAIN_PREFIX    'E'
-// #define TIMEOUT_PREFIX      'T'
-
+use anyhow::Result;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 
@@ -14,6 +8,8 @@ pub struct FifoReader {
     fifo: BufReader<File>,
     buf: String,
 }
+
+pub struct SocketReader {}
 
 #[derive(Debug)]
 pub enum Stroke {
@@ -28,18 +24,17 @@ pub enum Stroke {
 impl Default for FifoReader {
     fn default() -> Self {
         let args = crate::cmd::Config::parse();
-        let file = File::open(args.status_fifo).unwrap();
-        let reader = BufReader::new(file);
-        Self::new(reader)
+        if let Some(fifo) = args.status_fifo {
+            let file = File::open(fifo).unwrap();
+            let reader = BufReader::new(file);
+            return Self::new(reader);
+        }
+        todo!()
     }
 }
 
 impl FifoReader {
-    pub fn new(fifo: BufReader<File>) -> Self {
-        let buf = String::new();
-        FifoReader { fifo, buf }
-    }
-    pub fn next_event(&mut self) -> std::io::Result<Stroke> {
+    fn next_event(&mut self) -> Result<Stroke> {
         self.buf.clear();
         let _ = self.fifo.read_line(&mut self.buf)?;
         if let Some(prefix) = self.buf.chars().next() {
@@ -56,8 +51,29 @@ impl FifoReader {
         }
         Ok(Stroke::EOF)
     }
+    pub fn new(fifo: BufReader<File>) -> Self {
+        let buf = String::new();
+        FifoReader { fifo, buf }
+    }
 }
 
+impl SocketReader {
+    fn next_event(&mut self) -> Result<Stroke> {
+        todo!()
+    }
+}
+
+impl Iterator for SocketReader {
+    type Item = Stroke;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.next_event() {
+            Ok(Stroke::EOF) => None,
+            Ok(x) => Some(x),
+            _ => None,
+        }
+    }
+}
 impl Iterator for FifoReader {
     type Item = Stroke;
 

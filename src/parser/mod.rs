@@ -1,13 +1,20 @@
+pub mod command;
+pub mod config;
+pub mod subscribe;
+pub use types::Hotkey;
+pub mod types;
+
 use std::fmt::Display;
 use std::ops::Range;
 mod hotkey_parser;
-mod parser;
+mod token_parser;
 mod permutator;
 mod scanner;
 
-pub use super::types::*;
+pub use types::*;
 
-use scanner::Scanner;
+pub use scanner::Scanner;
+pub use token_parser::Parser;
 
 #[derive(Debug, Clone)]
 pub enum RangeError {
@@ -18,7 +25,6 @@ pub enum RangeError {
 
 #[derive(Debug, Clone)]
 pub enum ConfigParseError {
-    ConfigNotFound,
     PermissionError(String, String),
     ParseError(String),
     SyntaxError(String),
@@ -103,51 +109,6 @@ impl Token {
     }
 }
 
-pub type ParseResult<T> = anyhow::Result<T>;
-
-fn guess_config_path() -> anyhow::Result<String> {
-    let config_home = if let Ok(config_home) = std::env::var("XDG_CONFIG_HOME") {
-        std::path::PathBuf::from(config_home)
-    } else if let Ok(home) = std::env::var("HOME") {
-        std::path::Path::new(&home).join(".config")
-    } else {
-        Err(ConfigParseError::ConfigNotFound)?
-    };
-    let candidates = [("rhkd", "rhkdrc"), ("sxhkd", "sxhkdrc")];
-    let path = candidates.iter().find_map(move |(dir, filename)| {
-        let path = config_home.join(dir).join(filename);
-        if path.is_file() {
-            Some(path.to_string_lossy().to_string())
-        } else {
-            None
-        }
-    });
-    match path {
-        Some(p) => Ok(p),
-        _ => Err(ConfigParseError::ConfigNotFound)?,
-    }
-}
-
-pub fn get_config(file: Option<&str>) -> anyhow::Result<Hotkeys> {
-    let path = match file {
-        Some(s) => s.to_string(),
-        None => guess_config_path()?,
-    };
-    let content = std::fs::read(&path)
-        .map_err(|err| ConfigParseError::PermissionError(path, err.to_string()))?;
-    let tokens = Scanner::scan(&content)?;
-    let tree = parser::Parser::build(&content, &tokens)?;
-    let (hotkeys, errors) = tree.get_hotkeys();
-    for error in errors {
-        if let Some(err) = error.downcast_ref::<ConfigParseError>() {
-            println!("{}", err.contextualize(&content));
-        } else {
-            println!("WARNING: {}", error);
-        }
-    }
-
-    Ok(hotkeys.to_vec())
-}
 
 struct LineInfo {
     line: usize,
@@ -191,9 +152,6 @@ impl ConfigParseError {
 impl Display for ConfigParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ConfigParseError::ConfigNotFound => {
-                f.write_str("Unable to find a config file in the expected locations. ($HOME/.config/{sxhkd/sxhkdrc,rhkd/rhkdrc})")?;
-            }
             ConfigParseError::PermissionError(file, error) => {
                 f.write_fmt(format_args!(
                     "Unable to read config file: at '{file}': {error}"
@@ -356,7 +314,7 @@ super + {a,b} ; {1-3}
                 Token::EmptyLine(_),
             ]
         ));
-        let tree = super::parser::Parser::build(rule, &tokens)?;
+        let tree = super::token_parser::Parser::build(rule, &tokens)?;
         let (hotkeys, errors) = tree.get_hotkeys();
         assert_eq!(0, errors.len());
         assert_eq!(6, hotkeys.len());
@@ -413,13 +371,6 @@ super + {a,b} ; {1-3}
         Ok(())
     }
 
-    #[test]
-    fn load_real_config() {
-        let cfg = guess_config_path().unwrap();
-        let content = std::fs::read(cfg).unwrap();
-        let _ = Scanner::scan(&content);
-    }
-
     #[allow(unused)]
     fn print_tokens(context: &[u8], tokens: &Vec<Token>) {
         for token in tokens {
@@ -445,7 +396,7 @@ super + {_,shift +}c
 	bspc node -f {next,prev}.local.!hidden.window
 ";
         let tokens = Scanner::scan(rule)?;
-        let tree = super::parser::Parser::build(rule, &tokens)?;
+        let tree = super::token_parser::Parser::build(rule, &tokens)?;
         let (hotkeys, errors) = tree.get_hotkeys();
         print_errors(errors, rule);
         assert_eq!(0, errors.len());
@@ -479,7 +430,7 @@ super + {_,shift +}c
   bspc {desktop -f, node -d} '^{1-9,10}'
 ";
         let tokens = Scanner::scan(rule)?;
-        let tree = super::parser::Parser::build(rule, &tokens)?;
+        let tree = super::token_parser::Parser::build(rule, &tokens)?;
         let (hotkeys, errors) = tree.get_hotkeys();
         print_errors(errors, rule);
         assert_eq!(20, hotkeys.len());
@@ -503,7 +454,7 @@ super + {_,shift +}c
         let rule = b"super + Tab : bracket{left,right}
 	bspc desktop -f {prev,next}.local";
         let tokens = Scanner::scan(rule)?;
-        let tree = super::parser::Parser::build(rule, &tokens)?;
+        let tree = super::token_parser::Parser::build(rule, &tokens)?;
         let (hotkeys, errors) = tree.get_hotkeys();
         print_errors(errors, rule);
 
@@ -535,7 +486,7 @@ super + {_,shift +}c
   echo {shift,super}
 ";
         let tokens = Scanner::scan(rule)?;
-        let tree = super::parser::Parser::build(rule, &tokens)?;
+        let tree = super::token_parser::Parser::build(rule, &tokens)?;
         let (hotkeys, errors) = tree.get_hotkeys();
         print_errors(errors, rule);
         assert_eq!(2, hotkeys.len());

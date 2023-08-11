@@ -4,13 +4,12 @@ use clap::Parser;
 
 use super::{
     command::{self, FifoReader, Stroke},
-    config::load_hotkeys_rhkd,
-    parse::Chord,
-    types::Hotkeys,
+    config::load_config,
+    types::{Chord, Hotkeys},
 };
 
 pub struct Subscriber {
-    reader: FifoReader,
+    generator: Box<dyn Iterator<Item = Stroke>>,
     config: Hotkeys,
 }
 
@@ -56,9 +55,12 @@ fn get_valid_continuations(cfg: &Hotkeys, strokes: &[Chord]) -> Hotkeys {
 impl Default for Subscriber {
     fn default() -> Self {
         let args = crate::cmd::Config::parse();
-        let config = load_hotkeys_rhkd(args.config_path.as_deref()).unwrap();
+        let config = load_config(args.config_path.as_deref()).unwrap();
 
-        let file = File::open(args.status_fifo).unwrap();
+        // TODO: Use socket if fifo is not set
+        let fifo = args.status_fifo.unwrap();
+
+        let file = File::open(fifo).unwrap();
         let reader = BufReader::new(file);
         let cmd = command::FifoReader::new(reader);
         Self::new(cmd, config)
@@ -70,7 +72,7 @@ impl Iterator for Subscriber {
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            let next = self.reader.next();
+            let next = self.generator.next();
             match next {
                 Some(ref e) => {
                     if Self::is_restart(e) {
@@ -88,7 +90,10 @@ impl Iterator for Subscriber {
 
 impl Subscriber {
     pub fn new(reader: FifoReader, config: Hotkeys) -> Self {
-        Self { reader, config }
+        Self {
+            generator: Box::new(reader),
+            config,
+        }
     }
 
     fn is_restart(stroke: &Stroke) -> bool {
@@ -101,7 +106,8 @@ impl Subscriber {
     pub fn parse(stroke: &Stroke, cfg: &Hotkeys) -> Option<Event> {
         match stroke {
             Stroke::Hotkey(ref h) => {
-                let Ok(chords) = super::parse::parse_chord_chain(h) else {
+                dbg!(h);
+                let Ok(chords) = super::parse_chord_chain(h) else {
                     println!("Failed to parse hotkey from '{}'", h);
                     return None;
                 };
@@ -129,7 +135,7 @@ impl Subscriber {
         // TODO: Implement this in a less hardcoded way -- get sxhkd pid and monitor what
         // interrupts it receives?
         let mut restart = false;
-        for stroke in self.reader {
+        for stroke in self.generator {
             if let Some(event) = Self::parse(&stroke, &self.config) {
                 if callback(event) {
                     break;
