@@ -23,7 +23,7 @@ pub enum Stroke {
 
 impl Default for FifoReader {
     fn default() -> Self {
-        let args = crate::cmd::Config::parse();
+        let args = crate::Config::parse();
         if let Some(fifo) = args.status_fifo {
             let file = File::open(fifo).unwrap();
             let reader = BufReader::new(file);

@@ -4,7 +4,7 @@
   "window position": "right",
   "profiles": {
     "gui": {
-      "command": "cargo run --bin sxhkd-whichkey -- -s /tmp/sxhkd-fifo"
+      "command": "cargo run --bin rhkd-whichkey -- -s /tmp/sxhkd-fifo"
     },
     "test-parser": {
       "command": "cargo test --lib -- --show-output",

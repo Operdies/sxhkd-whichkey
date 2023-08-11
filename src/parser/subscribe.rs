@@ -1,7 +1,5 @@
 use std::{fs::File, io::BufReader};
 
-use clap::Parser;
-
 use super::{
     command::{self, FifoReader, Stroke},
     config::load_config,
@@ -54,7 +52,7 @@ fn get_valid_continuations(cfg: &Hotkeys, strokes: &[Chord]) -> Hotkeys {
 
 impl Default for Subscriber {
     fn default() -> Self {
-        let args = crate::cmd::Config::parse();
+        let args = crate::Config::default();
         let config = load_config(args.config_path.as_deref()).unwrap();
 
         // TODO: Use socket if fifo is not set

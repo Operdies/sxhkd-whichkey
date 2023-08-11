@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use xcb::x;
 pub use xcb::x::ModMask;
 
-pub mod keysyms;
+mod keysyms;
 use x::Allow::*;
 
 use anyhow::{Context, Result};
@@ -89,7 +89,7 @@ impl Keyboard {
         modfield
     }
 
-    pub fn modfield_from_mods(&self, modifiers: &[&str]) -> anyhow::Result<ModMask> {
+    fn modfield_from_mods(&self, modifiers: &[&str]) -> anyhow::Result<ModMask> {
         let mut modmask = 0;
         for modifier in modifiers {
             modmask |= self
@@ -109,8 +109,9 @@ impl Keyboard {
             modmask
         ))
     }
-    pub fn modifier_from_string(&self, s: &str) -> Option<ModMask> {
-        match s {
+
+    fn modifier_from_string(&self, s: &str) -> Result<ModMask> {
+        let opt = match s {
             "shift" => ModMask::SHIFT.into(),
             "control" | "ctrl" => ModMask::CONTROL.into(),
             "alt" => ModMask::from_bits(
@@ -133,8 +134,13 @@ impl Keyboard {
             "mod5" => ModMask::N5.into(),
             "lock" => ModMask::LOCK.into(),
             "any" => ModMask::ANY.into(),
-            _ => None,
-        }
+            _ => Err(KeyError::UnknownModifier(
+                s.to_string(),
+                keysyms::get_closest_modifier(s).map(|t| t.to_string()),
+            ))?,
+        };
+        let mask = opt.with_context(|| format!("Failed to create modmask from '{}'", s))?;
+        Ok(mask)
     }
 
     pub fn get_keycodes(&self, o: u32) -> Option<Vec<u8>> {
@@ -253,9 +259,46 @@ impl Keyboard {
     }
 }
 
-pub fn modfield_from_mods(modifiers: &[&str]) -> anyhow::Result<ModMask> {
-    KEYBOARD.modfield_from_mods(modifiers)
-}
 pub fn kbd() -> &'static Keyboard {
     &KEYBOARD
+}
+
+#[derive(Debug)]
+pub enum KeyError {
+    UnknownKey(String, Option<String>),
+    UnknownModifier(String, Option<String>),
+}
+
+impl std::error::Error for KeyError {}
+
+impl std::fmt::Display for KeyError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        fn txt(thing: &str, key: &str, similar: &Option<String>) -> String {
+            let exp = if let Some(s) = similar {
+                format!(", but '{}' is similar", s)
+            } else {
+                "".into()
+            };
+            format!("Unrecognized {} '{}'{}.", thing, key, exp)
+        }
+
+        match self {
+            KeyError::UnknownKey(key, o) => f.write_str(&txt("key", key, o)),
+            KeyError::UnknownModifier(key, o) => f.write_str(&txt("modifier", key, o)),
+        }
+    }
+}
+
+pub fn symbol_from_string(s: &str) -> Result<u32> {
+    if let Some(key) = keysyms::symbol_from_string(s) {
+        Ok(key)
+    } else if let Some(similar) = keysyms::get_closest_key(s) {
+        Err(KeyError::UnknownKey(s.into(), Some(similar.into())))?
+    } else {
+        Err(KeyError::UnknownKey(s.into(), None))?
+    }
+}
+
+pub fn modfield_from_mods(modifiers: &[&str]) -> anyhow::Result<ModMask> {
+    KEYBOARD.modfield_from_mods(modifiers)
 }

@@ -2,7 +2,7 @@
 use super::hotkey_parser::*;
 use super::{ChainMode, ConfigParseError, Token, TokenRange};
 use crate::{
-    keyboard::keysyms,
+    keyboard,
     parser::types::{Chord, Hotkey},
 };
 use anyhow::{anyhow, Result};

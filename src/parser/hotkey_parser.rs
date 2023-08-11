@@ -1,9 +1,9 @@
-use crate::{keyboard, keyboard::keysyms, parser::permutator::Permute};
+use crate::{keyboard, parser::permutator::Permute};
 pub use xcb::x::ModMask;
 
 use super::*;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 
 #[derive(Debug)]
 pub struct CommentNode {
@@ -185,20 +185,9 @@ impl HotkeyParser {
                         break;
                     }
                 }
-                if let Some(key) = keysyms::symbol_from_string(t_slice) {
-                    chord.keysym = key;
-                    t
-                } else if let Some(c) = keysyms::get_closest_key(t_slice) {
-                    return Err(anyhow!(ConfigParseError::InvalidBinding(
-                        source,
-                        format!("Unrecognized key '{}', but '{}' is similar.", t_slice, c),
-                    )));
-                } else {
-                    return Err(anyhow!(ConfigParseError::InvalidBinding(
-                        source,
-                        format!("Unrecognized key '{}'.", t_slice),
-                    )));
-                }
+                let key = keyboard::symbol_from_string(t_slice)?;
+                chord.keysym = key;
+                t
             }
             _ => Err(ConfigParseError::InvalidBinding(
                 last.source_token(),

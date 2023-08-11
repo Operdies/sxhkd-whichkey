@@ -139,7 +139,7 @@ fn build_grid(event: &KeyEvent) -> gtk::Grid {
 fn build_ui(application: &gtk::Application) {
     let window = ApplicationWindow::builder()
         .application(application)
-        .title("sxhkd-whichkey")
+        .title("rhkd-whichkey")
         .default_width(100)
         .default_height(40)
         .width_request(1)
@@ -197,7 +197,7 @@ fn main() -> glib::ExitCode {
         std::env::set_var("DISPLAY", ":0");
         println!("DISPLAY is not set. Trying with DISPLAY=\":0\"");
     }
-    let application = gtk::Application::new(Some("sxhkd.whichkey"), Default::default());
+    let application = gtk::Application::new(Some("rhkd.whichkey"), Default::default());
     application.connect_activate(|app| {
         // The CSS "magic" happens here.
         let provider = gtk::CssProvider::new();
