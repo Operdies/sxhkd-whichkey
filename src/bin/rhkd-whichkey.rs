@@ -49,13 +49,16 @@ fn build_grid(event: &KeyEvent) -> gtk::Grid {
         .iter()
         .find_map(|hk| hk.title.clone())
         .unwrap_or_else(|| {
-            let join = "  ";
             let mut title = String::new();
+            let locking_source = &event.config[0];
             for (i, chord) in event.keys.iter().enumerate() {
                 title.push_str(&chord.repr);
-                if i != (event.keys.len() - 1) {
-                    title.push_str(join);
-                }
+                let join = if locking_source.chain[i].is_locking() {
+                    lock
+                } else {
+                    arrow
+                };
+                title.push_str(&format!(" {} ", join));
             }
             title
         });
@@ -63,11 +66,9 @@ fn build_grid(event: &KeyEvent) -> gtk::Grid {
     let current_hotkey = gtk::Label::new(Some(window_title));
     current_hotkey.set_widget_name("path");
 
-    fn selector(hotkey: &Hotkey) -> &str {
-        hotkey.chain[0].repr.trim()
-    }
-
-    let grouped = group_by(event.config.clone(), selector);
+    let grouped = group_by(event.config.clone(), |hk: &Hotkey| {
+        hk.chain[event.current_index].repr.trim()
+    });
     let chunks = grouped.chunks(10);
     let n_chunks = chunks.len() as i32;
 
@@ -90,6 +91,7 @@ fn build_grid(event: &KeyEvent) -> gtk::Grid {
                 let continuation = hotkey
                     .chain
                     .iter()
+                    .skip(event.current_index)
                     .map(|ch| ch.repr.trim())
                     .collect::<Vec<_>>()
                     .join(&format!(" {} ", arrow));
@@ -101,10 +103,10 @@ fn build_grid(event: &KeyEvent) -> gtk::Grid {
                 (continuation, command)
             } else {
                 // There are multiple continuations in this chain -- show each continuation
-                let continuation = group[0].chain[0].repr.trim().to_string();
+                let continuation = group[0].chain[event.current_index].repr.trim().to_string();
                 let command = group
                     .iter()
-                    .map(|g| g.chain.get(1))
+                    .map(|g| g.chain.get(event.current_index + 1))
                     .filter(|x| x.is_some())
                     .map(|s| s.unwrap().repr.trim())
                     .collect::<Vec<_>>()
@@ -118,7 +120,7 @@ fn build_grid(event: &KeyEvent) -> gtk::Grid {
             };
             keys.set_halign(gtk::Align::End);
             completion_grid.attach(&keys, 0, row, 1, 1);
-            let join_symbol = if group[0].chain[0].lock_chain.is_locking() {
+            let join_symbol = if group[0].chain[event.current_index].lock_chain.is_locking() {
                 lock
             } else {
                 triangle

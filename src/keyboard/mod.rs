@@ -29,7 +29,6 @@ impl Keyboard {
     }
 
     pub fn next_event(&self) -> xcb::Result<xcb::Event> {
-        self.sync_keyboard()?;
         self.conn.wait_for_event()
     }
 
@@ -46,20 +45,16 @@ impl Keyboard {
         self.allow_events(ReplayPointer)
     }
 
-    fn keysym_from_keycode(&self, keycode: u8) -> Option<char> {
-        let r = self
-            .keycode_lookup
+    pub fn keysym_from_keycode(&self, keycode: u8) -> Option<&'static str> {
+        self.keycode_lookup
             .iter()
             .find(|i| i.1.contains(&keycode))
-            .map(|i| i.0);
-        if let Some(i) = r {
-            let i = *i;
-            if let Some(ch) = char::from_u32(i) {
-                return Some(ch);
-            }
-        }
-        None
+            .map(|i| i.0)
+            .copied()
+            .map(keysyms::keycode_to_string)
+            .unwrap_or(None)
     }
+
     fn modfield_from_keycode(&self, keycode: u8) -> u32 {
         if keycode == 0 {
             return 0;
@@ -169,21 +164,9 @@ impl Keyboard {
             pointer_mode: xcb::x::GrabMode::Async,
             keyboard_mode: xcb::x::GrabMode::Sync,
         };
-        self.conn.send_and_check_request(&request).with_context(|| {
-            let (s1, s2) = {
-                (
-                    match modifiers {
-                        x::ModMask::ANY => String::from("_"),
-                        _ => format!("{:?}", modifiers),
-                    },
-                    self.keysym_from_keycode(key)
-                        .map(|ch| ch.to_string())
-                        .unwrap_or(format!("{}", key)),
-                )
-            };
-
-            format!("Failed to grab key {} + {}: key is already grabbed", s1, s2,)
-        })
+        self.conn
+            .send_and_check_request(&request)
+            .context("Key is already grabbed")
     }
 
     pub fn ungrab(&self, key: u8, modifiers: xcb::x::ModMask) -> xcb::Result<()> {
@@ -273,7 +256,7 @@ impl std::error::Error for KeyError {}
 
 impl std::fmt::Display for KeyError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        fn txt(thing: &str, key: &str, similar: &Option<String>) -> String {
+        fn txt(thing: &str, key: &str, similar: Option<&str>) -> String {
             let exp = if let Some(s) = similar {
                 format!(", but '{}' is similar", s)
             } else {
@@ -283,8 +266,8 @@ impl std::fmt::Display for KeyError {
         }
 
         match self {
-            KeyError::UnknownKey(key, o) => f.write_str(&txt("key", key, o)),
-            KeyError::UnknownModifier(key, o) => f.write_str(&txt("modifier", key, o)),
+            KeyError::UnknownKey(key, o) => f.write_str(&txt("key", key, o.as_deref())),
+            KeyError::UnknownModifier(key, o) => f.write_str(&txt("modifier", key, o.as_deref())),
         }
     }
 }
@@ -301,4 +284,13 @@ pub fn symbol_from_string(s: &str) -> Result<u32> {
 
 pub fn modfield_from_mods(modifiers: &[&str]) -> anyhow::Result<ModMask> {
     KEYBOARD.modfield_from_mods(modifiers)
+}
+pub fn modfield_from_keysym(keysym: &str) -> u32 {
+    KEYBOARD.modfield_from_keysym(keysym)
+}
+
+/// # Safety
+/// This is never safe, except immediately before process exit
+pub unsafe fn drop_keyboard() {
+    // TODO figure out how this could be done
 }

@@ -42,7 +42,7 @@ An sxhkd status-fifo is required for this to work. A fifo can be created with 'm
 
 When a chain is started, and no commands are executed within a given timeframe, the application will show the valid continuations. When a continuation is chosen or the chain ends, the continuations will disappear."
 )]
-pub struct Config {
+pub struct CliArguments {
     /// Name of the keysym used for aborting chord chains.
     #[arg(short = 'a', long = "abort-keysym", default_value = Some("Escape"))]
     pub abort_keysym: Option<String>,
@@ -50,8 +50,8 @@ pub struct Config {
     #[arg(short = 'r', long = "redir-file")]
     pub redir_file: Option<String>,
     /// Timeout in seconds for the recording of chord chains.
-    #[arg(short = 't', long = "timeout")]
-    pub timeout: Option<usize>,
+    #[arg(short = 't', long = "timeout", default_value_t = 3)]
+    pub timeout: u32,
     /// Handle the first COUNT mapping notify events
     #[arg(short = 'm', long = "count")]
     pub count: Option<usize>,
@@ -65,8 +65,8 @@ pub struct Config {
     pub config_path: Option<String>,
 }
 
-impl Default for Config {
+impl Default for CliArguments {
     fn default() -> Self {
-        Config::parse()
+        CliArguments::parse()
     }
 }

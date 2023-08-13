@@ -20,5 +20,8 @@ gtk = { version = "0.17.1", features = ["v3_24"] }
 lazy_static = "1.4.0"
 nix = { version = "0.26.2" }
 regex = "1.9.1"
+serde = { version = "1.0.183", features = ["derive"] }
+serde_json = "1.0.104"
 signal-hook = "0.3.17"
+thiserror = "1.0.44"
 xcb = { version = "1.2.2" }

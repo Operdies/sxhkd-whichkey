@@ -2,13 +2,13 @@ use std::{fs::File, io::BufReader};
 
 use super::{
     command::{self, FifoReader, Stroke},
-    config::load_config,
-    types::{Chord, Hotkeys},
+    config::{load_config, Config},
+    types::{Chord, Hotkey},
 };
 
 pub struct Subscriber {
     generator: Box<dyn Iterator<Item = Stroke>>,
-    config: Hotkeys,
+    config: Config,
 }
 
 #[derive(Debug, Clone)]
@@ -25,11 +25,12 @@ pub struct CommandEvent {
 }
 #[derive(Debug, Clone)]
 pub struct KeyEvent {
-    pub config: Hotkeys,
+    pub config: Vec<Hotkey>,
     pub keys: Vec<Chord>,
+    pub current_index: usize,
 }
 
-fn get_valid_continuations(cfg: &Hotkeys, strokes: &[Chord]) -> Hotkeys {
+fn get_valid_continuations(cfg: &Vec<Hotkey>, strokes: &[Chord]) -> Vec<Hotkey> {
     let mut result = vec![];
     let n_strokes = strokes.len();
     for hk in cfg {
@@ -42,9 +43,7 @@ fn get_valid_continuations(cfg: &Hotkeys, strokes: &[Chord]) -> Hotkeys {
             .zip(strokes)
             .all(|(chain, stroke)| chain.repr.eq(&stroke.repr))
         {
-            let mut hk = hk.clone();
-            hk.chain = hk.chain.into_iter().skip(n_strokes).collect();
-            result.push(hk);
+            result.push(hk.clone());
         }
     }
     result
@@ -52,7 +51,7 @@ fn get_valid_continuations(cfg: &Hotkeys, strokes: &[Chord]) -> Hotkeys {
 
 impl Default for Subscriber {
     fn default() -> Self {
-        let args = crate::Config::default();
+        let args = crate::CliArguments::default();
         let config = load_config(args.config_path.as_deref()).unwrap();
 
         // TODO: Use socket if fifo is not set
@@ -76,7 +75,7 @@ impl Iterator for Subscriber {
                     if Self::is_restart(e) {
                         // reload the config by reassigning self
                         *self = Self::default();
-                    } else if let Some(e) = Self::parse(e, &self.config) {
+                    } else if let Some(e) = Self::parse(e, self.config.get_hotkeys()) {
                         return Some(e);
                     }
                 }
@@ -87,7 +86,7 @@ impl Iterator for Subscriber {
 }
 
 impl Subscriber {
-    pub fn new(reader: FifoReader, config: Hotkeys) -> Self {
+    pub fn new(reader: FifoReader, config: Config) -> Self {
         Self {
             generator: Box::new(reader),
             config,
@@ -101,14 +100,14 @@ impl Subscriber {
             _ => false,
         }
     }
-    pub fn parse(stroke: &Stroke, cfg: &Hotkeys) -> Option<Event> {
+    pub fn parse(stroke: &Stroke, cfg: &Vec<Hotkey>) -> Option<Event> {
         match stroke {
             Stroke::Hotkey(ref h) => {
-                dbg!(h);
                 let Ok(chords) = super::parse_chord_chain(h) else {
                     println!("Failed to parse hotkey from '{}'", h);
                     return None;
                 };
+                let current_index = chords.len();
                 let continuations = get_valid_continuations(cfg, &chords);
                 if continuations.is_empty() {
                     None
@@ -116,6 +115,7 @@ impl Subscriber {
                     Some(Event::KeyEvent(KeyEvent {
                         config: continuations,
                         keys: chords,
+                        current_index,
                     }))
                 }
             }
@@ -134,7 +134,7 @@ impl Subscriber {
         // interrupts it receives?
         let mut restart = false;
         for stroke in self.generator {
-            if let Some(event) = Self::parse(&stroke, &self.config) {
+            if let Some(event) = Self::parse(&stroke, self.config.get_hotkeys()) {
                 if callback(event) {
                     break;
                 }

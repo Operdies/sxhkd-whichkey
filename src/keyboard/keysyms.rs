@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 /// Source: https://gist.github.com/matoken/5c2b9d2f0b92c21452cf8b4f01f7e149
 pub fn symbol_from_string(s: &str) -> Option<u32> {
     // match cases generated with: %s/#define \([^ ][^ ]*\)\(.*\)/"\1" => \2,/
@@ -4808,6 +4810,24 @@ const KNOWN_KEYS: [&str; 2276] = [
     "XF86LogWindowTree",
     "XF86LogGrabInfo",
 ];
+
+lazy_static! {
+    static ref LOOKUP: HashMap<u32, &'static str> = make_map();
+}
+
+pub fn keycode_to_string(keycode: u32) -> Option<&'static str> {
+    LOOKUP.get(&keycode).copied()
+}
+
+fn make_map() -> HashMap<u32, &'static str> {
+    let mut map: HashMap<_, _> = Default::default();
+    for key in KNOWN_KEYS {
+        if let Some(s) = symbol_from_string(key) {
+            map.insert(s, key);
+        }
+    }
+    map
+}
 
 const KNOWN_MODIFIERS: [&str; 15] = [
     // Modifiers -- not actually key codes

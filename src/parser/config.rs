@@ -1,11 +1,30 @@
 use crate::parser::*;
 use anyhow::{bail, Context, Result};
 
-pub fn load_config(file: Option<&str>) -> Result<Hotkeys> {
-    let path = match file {
-        Some(s) => s.to_string(),
-        None => guess_config_path()?,
+pub struct Config {
+    path: Option<String>,
+    hotkeys: Vec<Hotkey>,
+}
+
+impl Config {
+    pub fn get_hotkeys(&self) -> &Vec<Hotkey> {
+        &self.hotkeys
+    }
+
+    pub fn reload(&mut self) -> Result<Config> {
+        load_config(self.path.as_deref())
+    }
+}
+
+pub fn load_config(file: Option<&str>) -> Result<Config> {
+    let path = file
+        .map(|s| s.to_string())
+        .or_else(|| guess_config_path().ok());
+    let Some(path) = path else {
+        println!("No config file found. Using empty default config.");
+        return Ok(Config { path: None, hotkeys: vec![] });
     };
+
     let content = std::fs::read(&path).context(format!("Failed to read file '{}'", path))?;
     let tokens = Scanner::scan(&content).context(format!("Error while parsing '{}'", path))?;
     let tree = token_parser::Parser::build(&content, &tokens)?;
@@ -18,7 +37,10 @@ pub fn load_config(file: Option<&str>) -> Result<Hotkeys> {
         }
     }
 
-    Ok(hotkeys.to_vec())
+    Ok(Config {
+        path: Some(path),
+        hotkeys: hotkeys.to_vec(),
+    })
 }
 
 fn guess_config_path() -> anyhow::Result<String> {

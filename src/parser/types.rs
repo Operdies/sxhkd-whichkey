@@ -1,5 +1,7 @@
 #![allow(unused)]
 
+use std::fmt::Display;
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Cycle {
     pub period: i32,
@@ -15,6 +17,16 @@ pub enum ReplayMode {
     Supress,
 }
 
+impl ReplayMode {
+    /// Returns `true` if the replay mode is [`Replay`].
+    ///
+    /// [`Replay`]: ReplayMode::Replay
+    #[must_use]
+    pub fn is_replay(&self) -> bool {
+        matches!(self, Self::Replay)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Default, Copy)]
 pub enum ChainMode {
     // Lock the chain in the current state until ABORT_KEYSYM is triggered
@@ -22,6 +34,23 @@ pub enum ChainMode {
     // Release the chain when the state is advanced
     #[default]
     Once,
+}
+
+impl Chord {
+    /// Returns `true` if the chain mode is [`Locking`].
+    ///
+    /// [`Locking`]: ChainMode::Locking
+    #[must_use]
+    pub fn is_locking(&self) -> bool {
+        self.lock_chain.is_locking()
+    }
+
+}
+
+impl Display for Chord {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.repr)
+    }
 }
 
 impl ChainMode {
@@ -46,6 +75,16 @@ pub enum KeyMode {
     KeyRelease,
 }
 
+impl KeyMode {
+    /// Returns `true` if the key mode is [`KeyPress`].
+    ///
+    /// [`KeyPress`]: KeyMode::KeyPress
+    #[must_use]
+    pub fn is_key_press(&self) -> bool {
+        matches!(self, Self::KeyPress)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Default, Copy)]
 pub struct ModMask {
     mods: u32,
@@ -60,6 +99,18 @@ impl From<ModMask> for xcb::x::ModMask {
 impl From<u32> for ModMask {
     fn from(mods: u32) -> Self {
         Self { mods }
+    }
+}
+
+impl From<ModMask> for u32 {
+    fn from(value: ModMask) -> Self {
+        value.mods
+    }
+}
+
+impl ModMask {
+    pub fn bits(&self) -> u32 {
+        self.mods
     }
 }
 
@@ -94,4 +145,3 @@ impl Hotkey {
             .unwrap_or_else(|| self.command.trim_matches(matches).into())
     }
 }
-pub type Hotkeys = Vec<Hotkey>;

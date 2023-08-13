@@ -4,14 +4,14 @@
   "window position": "right",
   "profiles": {
     "gui": {
-      "command": "cargo run --bin rhkd-whichkey -- -s /tmp/sxhkd-fifo"
+      "command": "cargo run --bin rhkd-whichkey -- -s /tmp/sxhkd-fifo -c ~/.config/sxhkd/sxhkdrc"
     },
     "test-parser": {
       "command": "cargo test --lib -- --show-output",
       "window position": "right"
     },
     "rhkd": {
-      "command": "cargo run --bin rhkd"
+      "command": "cargo run --bin rhkd -- -s /tmp/rhkd-fifo -c ~/.config/sxhkd/sxhkdrc"
     }
   }
 }

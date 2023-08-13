@@ -7,9 +7,9 @@ pub mod types;
 use std::fmt::Display;
 use std::ops::Range;
 mod hotkey_parser;
-mod token_parser;
 mod permutator;
 mod scanner;
+mod token_parser;
 
 pub use types::*;
 
@@ -108,7 +108,6 @@ impl Token {
         matches!(self, Self::ContinueComment(..))
     }
 }
-
 
 struct LineInfo {
     line: usize,
@@ -505,5 +504,49 @@ super + {_,shift +}c
             assert_eq!(hk.command, "echo super");
         }
         Ok(())
+    }
+    #[test]
+    fn test_cycles() -> Result<()> {
+        let rule = b"a
+  echo {1,2} {3,4} {5,6}";
+        let tokens = Scanner::scan(rule)?;
+        let tree = super::token_parser::Parser::build(rule, &tokens)?;
+        let (hotkeys, errors) = tree.get_hotkeys();
+        print_errors(errors, rule);
+
+        // NOTE: Cycles are expanded front-first, as opposed to regular bindings which are expanded
+        // back-first
+        let expected_order: &[_] = &[
+            (1, 3, 5),
+            (2, 3, 5),
+            (1, 4, 5),
+            (2, 4, 5),
+            (1, 3, 6),
+            (2, 3, 6),
+            (1, 4, 6),
+            (2, 4, 6),
+        ];
+        let expected_count = 8;
+        assert_eq!(8, hotkeys.len());
+        assert_eq!(0, errors.len());
+
+        let mut delay = 0;
+        for (delay, (hk, expected)) in hotkeys.iter().zip(expected_order).enumerate() {
+            let expected = format!("echo {} {} {}", expected.0, expected.1, expected.2);
+            assert_eq!(hk.command, expected);
+            let cycle = hk.cycle.clone().unwrap();
+            assert_eq!(cycle.period, expected_count);
+            assert_eq!(cycle.delay, delay as i32);
+        }
+
+        Ok(())
+    }
+    /// TODO implement this test
+    #[test]
+    fn name() {
+        // super + F3 ; a ; b ; {c,d}
+        //   echo {1,2}
+        // super + F3 ; a ; b ; c
+        //   echo 1
     }
 }

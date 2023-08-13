@@ -28,6 +28,7 @@ pub struct HotkeyParser {
     shortcuts: Vec<GroupableToken>,
     errors: Vec<anyhow::Error>,
     hotkeys: Vec<Hotkey>,
+    is_cycle: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -333,7 +334,7 @@ impl HotkeyParser {
         }
     }
 
-    fn build_error_string(&self, context: &[u8]) -> Option<String> {
+    fn get_group_mapping_errors(&self, context: &[u8]) -> Option<String> {
         let count_shortcuts = Self::group_counts(&self.shortcuts);
         let count_commands = Self::group_counts(&self.commands);
 
@@ -465,19 +466,30 @@ impl HotkeyParser {
         Ok(chain)
     }
 
+    fn is_cycle(shortcuts: &[usize], commands: &[usize]) -> bool {
+        shortcuts.is_empty() && commands.iter().product::<usize>() > 1
+    }
+
     // Populate errors and hotkeys
     fn populate_errors_and_hotkeys(mut self, context: &[u8]) -> Self {
-        if let Some(err_string) = self.build_error_string(context) {
-            self.errors
-                .push(ConfigParseError::GroupMappingMismatch(err_string).into());
+        // If this is a cycle, the mapping check is not needed
+        if !self.is_cycle {
+            if let Some(err_string) = self.get_group_mapping_errors(context) {
+                self.errors
+                    .push(ConfigParseError::GroupMappingMismatch(err_string).into());
+            }
         }
 
-        let count: Vec<_> = {
-            let count_shortcuts = Self::group_counts(&self.shortcuts);
-            let count_commands = Self::group_counts(&self.commands);
+        let count_shortcuts = Self::group_counts(&self.shortcuts);
+        let count_commands = Self::group_counts(&self.commands);
+
+        let count: Vec<_> = if self.is_cycle {
+            count_commands
+        } else {
             if count_shortcuts.len() != count_commands.len() {
                 return self; // unrecoverable
             }
+            // Special case for cycles
             count_shortcuts
                 .into_iter()
                 .zip(count_commands)
@@ -485,14 +497,22 @@ impl HotkeyParser {
                 .collect()
         };
 
-        let variants = Permute::back_first(&count);
+        let variants = if self.is_cycle {
+            Permute::front_first(&count)
+        } else {
+            Permute::back_first(&count)
+        };
 
         let units: Vec<Unit> = Unit::make(
             &self.commands,
             &self.shortcuts,
             &self.descriptions,
             &variants,
+            self.is_cycle,
         );
+
+        let period = units.len() as i32;
+        let mut delay = 0;
 
         for unit in units {
             let shortcut = &unit.shortcut;
@@ -516,11 +536,18 @@ impl HotkeyParser {
                 panic!("Empty chain!!!");
             }
 
+            let cycle = if self.is_cycle {
+                Some(Cycle { period, delay })
+            } else {
+                Default::default()
+            };
+            delay += 1;
+
             let hotkey = Hotkey {
                 chain,
                 command: command_string,
                 sync,
-                cycle: Default::default(),
+                cycle,
                 title: self.title.clone(),
                 description: unit.description.map(|d| Self::string_variant(&d)),
             };
@@ -540,7 +567,10 @@ impl HotkeyParser {
         let command_groups = Self::group(&command.tokens, context);
         let (title, comment_groups) = Self::split_comment(comment, context);
         let shortcut_groups = Self::group(&shortcut.tokens, context);
-
+        let is_cycle = Self::is_cycle(
+            &Self::group_counts(&shortcut_groups),
+            &Self::group_counts(&command_groups),
+        );
         let instance = Self {
             shortcuts: shortcut_groups,
             title: title.map(|t| t.get_string(context)),
@@ -548,6 +578,7 @@ impl HotkeyParser {
             descriptions: comment_groups,
             hotkeys: vec![],
             errors: vec![],
+            is_cycle,
         };
         let result = instance.populate_errors_and_hotkeys(context);
         (result.hotkeys, result.errors)
@@ -572,6 +603,7 @@ impl Unit {
         shortcuts: &[GroupableToken],
         descriptions: &[GroupableToken],
         variants: &Vec<Vec<usize>>,
+        is_cycle: bool,
     ) -> Vec<Unit> {
         let mut result = vec![];
         'outer: for variant in variants {
@@ -579,17 +611,22 @@ impl Unit {
             let mut ct = vec![];
             let mut dt = vec![];
             for (g, i) in variant.iter().cloned().enumerate() {
-                let shortcut = HotkeyParser::get_item(shortcuts, g, i);
-                let command = HotkeyParser::get_item(commands, g, i);
-                match (shortcut, command) {
-                    (Some(shortcut), Some(command)) => {
+                if !is_cycle {
+                    if let Some(shortcut) = HotkeyParser::get_item(shortcuts, g, i) {
                         st.push(shortcut.clone());
-                        ct.push(command.clone());
-                        dt.push(HotkeyParser::get_item(descriptions, g, i).cloned());
+                    } else {
+                        continue 'outer;
                     }
-                    _ => continue 'outer,
+                }
+                let command = HotkeyParser::get_item(commands, g, i);
+                if let Some(command) = command {
+                    ct.push(command.clone());
+                    dt.push(HotkeyParser::get_item(descriptions, g, i).cloned());
+                } else {
+                    continue 'outer;
                 }
             }
+
             let command = HotkeyParser::select_variant(commands, ct);
             let description = if dt.iter().all(|d| d.is_some()) {
                 Some(HotkeyParser::select_variant(
@@ -599,6 +636,9 @@ impl Unit {
             } else {
                 None
             };
+            if is_cycle {
+                st.push(vec![]);
+            }
             let shortcut = HotkeyParser::select_variant(shortcuts, st);
             result.push(Unit {
                 shortcut,
