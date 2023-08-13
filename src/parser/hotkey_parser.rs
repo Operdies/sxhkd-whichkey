@@ -517,12 +517,18 @@ impl HotkeyParser {
         for unit in units {
             let shortcut = &unit.shortcut;
             let command = &unit.command;
-            let command_string = Self::string_variant(command).trim().to_string();
-            let (sync, command_string) = if command_string.starts_with(';') {
-                (true, command_string.trim_start_matches(';').to_string())
-            } else {
-                (false, command_string)
-            };
+            let mut command_string = Self::string_variant(command).trim().to_string();
+            let sync = command_string.starts_with(';');
+            if sync {
+                command_string.remove(0);
+            }
+
+            if command_string.ends_with('\\') {
+                command_string.pop();
+            }
+
+            let leading_trash: &[_] = &['\\', '\n', '\r', ' ', '\t'];
+            let command_string = command_string.trim_start_matches(leading_trash).trim().to_string();
 
             let chain = match self.make_chain(shortcut) {
                 Ok(chain) => chain,
@@ -531,10 +537,6 @@ impl HotkeyParser {
                     continue;
                 }
             };
-            if chain.is_empty() {
-                println!("{:?}", shortcut);
-                panic!("Empty chain!!!");
-            }
 
             let cycle = if self.is_cycle {
                 Some(Cycle { period, delay })

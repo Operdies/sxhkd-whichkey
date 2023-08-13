@@ -44,7 +44,6 @@ impl Chord {
     pub fn is_locking(&self) -> bool {
         self.lock_chain.is_locking()
     }
-
 }
 
 impl Display for Chord {
@@ -123,8 +122,6 @@ pub struct Chord {
     pub event_type: KeyMode,
     pub replay_event: ReplayMode,
     pub lock_chain: ChainMode,
-    // TODO: Figure out what this is used for
-    pub more: Option<Vec<Chord>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]

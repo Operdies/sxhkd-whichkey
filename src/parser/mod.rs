@@ -549,4 +549,26 @@ super + {_,shift +}c
         // super + F3 ; a ; b ; c
         //   echo 1
     }
+    #[test]
+    fn test_command_with_escape_at_end() -> Result<()> {
+        let rule = "# Power Menu
+# { Lock,󰗼 Logout, Shutdown,󰁯 Reboot, Sleep}
+super + shift + e ; { 1, 2, 3, 4, 5}
+  { ~/.config/bspwm/scripts/i3lock-fancy/i3lock-minimalist.sh \
+    , bspc quit \
+    , systemctl poweroff \
+    , systemctl reboot \
+    , ~/.config/bspwm/scripts/i3lock-fancy/i3lock-minimalist.sh; systemctl suspend \
+  }
+"
+        .as_bytes();
+        let tokens = Scanner::scan(rule)?;
+        let tree = super::token_parser::Parser::build(rule, &tokens)?;
+        let (hotkeys, errors) = tree.get_hotkeys();
+        print_errors(errors, rule);
+        assert_eq!(0, errors.len());
+        assert_eq!(5, hotkeys.len());
+        assert_eq!(hotkeys[1].command, "bspc quit");
+        Ok(())
+    }
 }

@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 
 mod hotkey_handler;
 mod executor;
+mod fifo;
 use hotkey_handler::*;
 
 #[derive(Debug)]

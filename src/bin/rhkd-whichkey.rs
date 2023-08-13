@@ -166,11 +166,17 @@ fn build_ui(application: &gtk::Application) {
 
     let (sender, receiver) = MainContext::channel(glib::PRIORITY_DEFAULT);
     let _ = std::thread::spawn(move || {
-        for evt in Subscriber::default() {
-            if sender.send(evt).is_err() {
-                // Break in case of send error
-                return;
+        loop {
+            for evt in Subscriber::default() {
+                if sender.send(evt).is_err() {
+                    // Break in case of send error
+                    break;
+                }
             }
+            // The subscriber stopped yielding events, likely because the FIFO was closed (e.g.
+            // rhkd was stopped)
+            // Let's just wait a second and see if it starts back up
+            std::thread::sleep(std::time::Duration::from_secs(1));
         }
     });
 

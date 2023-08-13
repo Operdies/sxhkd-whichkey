@@ -1,9 +1,18 @@
 use crate::parser::*;
 use anyhow::{bail, Context, Result};
+use thiserror::Error;
 
 pub struct Config {
     path: Option<String>,
     hotkeys: Vec<Hotkey>,
+}
+
+#[derive(Error, Debug)]
+pub enum CycleError {
+    #[error("Provided hotkey is not a cycle.")]
+    NotACycle,
+    #[error("Provided cycle was not found.")]
+    CycleNotFound,
 }
 
 impl Config {
@@ -13,6 +22,27 @@ impl Config {
 
     pub fn reload(&mut self) -> Result<Config> {
         load_config(self.path.as_deref())
+    }
+
+    pub fn cycle_hotkey(&mut self, hk: &Hotkey) -> Result<(), CycleError> {
+        if hk.cycle.is_none() {
+            return Err(CycleError::NotACycle);
+        };
+
+        let start = self
+            .hotkeys
+            .iter()
+            .position(|h| h == hk)
+            .ok_or(CycleError::CycleNotFound)?;
+        let hk = &self.hotkeys[start];
+        let cycle_period = hk.cycle.clone().map(|c| c.period).ok_or(CycleError::NotACycle)? as usize;
+
+        // This should cycle the hotkeys so e.g.:
+        // [ 1, 2, 3 ] -> [ 2, 3, 1 ] -> [ 3, 1, 2 ] when this method is called in succession
+        for idx in start..start + cycle_period-1 {
+            self.hotkeys.swap(idx, idx+1);
+        }
+        Ok(())
     }
 }
 
