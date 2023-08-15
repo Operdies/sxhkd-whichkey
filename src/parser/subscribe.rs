@@ -1,5 +1,7 @@
 use std::{fs::File, io::BufReader};
 
+use crate::{rhkc::ipc::SocketReader, CliArguments};
+
 use super::{
     command::{self, FifoReader, Stroke},
     config::{load_config, Config},
@@ -49,18 +51,14 @@ fn get_valid_continuations(cfg: &Vec<Hotkey>, strokes: &[Chord]) -> Vec<Hotkey> 
     result
 }
 
-impl Default for Subscriber {
-    fn default() -> Self {
+impl Subscriber {
+    pub fn new(fifo: &str) -> Self {
         let args = crate::CliArguments::default();
         let config = load_config(args.config_path.as_deref()).unwrap();
-
-        // TODO: Use socket if fifo is not set
-        let fifo = args.status_fifo.unwrap();
-
         let file = File::open(fifo).unwrap();
         let reader = BufReader::new(file);
         let cmd = command::FifoReader::new(reader);
-        Self::new(cmd, config)
+        Self::from_fiforeader(cmd, config)
     }
 }
 
@@ -74,7 +72,7 @@ impl Iterator for Subscriber {
                 Some(ref e) => {
                     if Self::is_restart(e) {
                         // reload the config by reassigning self
-                        *self = Self::default();
+                        *self = Self::new(&CliArguments::default().status_fifo.unwrap())
                     } else if let Some(e) = Self::parse(e, self.config.get_hotkeys()) {
                         return Some(e);
                     }
@@ -86,7 +84,7 @@ impl Iterator for Subscriber {
 }
 
 impl Subscriber {
-    pub fn new(reader: FifoReader, config: Config) -> Self {
+    pub fn from_fiforeader(reader: FifoReader, config: Config) -> Self {
         Self {
             generator: Box::new(reader),
             config,
@@ -97,6 +95,7 @@ impl Subscriber {
         let restart_signal = "pkill -USR1 -x sxhkd";
         match stroke {
             Stroke::Command(s) => s == restart_signal,
+            Stroke::Reload => true,
             _ => false,
         }
     }
@@ -123,30 +122,6 @@ impl Subscriber {
             Stroke::BeginChain(_) => Some(Event::ChainStarted),
             Stroke::Command(s) => Some(Event::CommandEvent(CommandEvent { command: s.into() })),
             _ => None,
-        }
-    }
-
-    pub fn register<F>(self, callback: F)
-    where
-        F: Fn(Event) -> bool,
-    {
-        // TODO: Implement this in a less hardcoded way -- get sxhkd pid and monitor what
-        // interrupts it receives?
-        let mut restart = false;
-        for stroke in self.generator {
-            if let Some(event) = Self::parse(&stroke, self.config.get_hotkeys()) {
-                if callback(event) {
-                    break;
-                }
-            }
-            if Self::is_restart(&stroke) {
-                restart = true;
-                break;
-            };
-        }
-
-        if restart {
-            Self::default().register(callback)
         }
     }
 }

@@ -1,4 +1,5 @@
-use crate::parser::{Hotkey, Cycle};
+use crate::parser::subscribe::Subscriber;
+use crate::parser::{Cycle, Hotkey};
 
 use super::fifo::{Fifo, FifoError};
 use super::*;
@@ -23,6 +24,7 @@ pub struct HotkeyHandler {
     grab: bool,
     fifo: Option<Fifo>,
     executor: Executor,
+    subscribers: Vec<IpcRequestObject>,
 }
 
 #[derive(Clone)]
@@ -32,6 +34,9 @@ struct ChainItem {
 }
 
 impl HotkeyHandler {
+    pub fn dump_config(&self) -> String {
+        self.config.dump(Default::default())
+    }
     pub fn toggle_grab(&mut self) -> Result<()> {
         if self.grab {
             self.ungrab()?;
@@ -61,6 +66,12 @@ impl HotkeyHandler {
         println!("PUBLISH {:?}", message);
         if let Some(ref mut fifo) = self.fifo {
             fifo.write_message(message)?;
+        }
+        for i in (0..self.subscribers.len()).rev() {
+            let sub = &mut self.subscribers[i];
+            if sub.send(message).is_err() {
+                self.subscribers.swap_remove(i);
+            }
         }
         Ok(())
     }
@@ -191,7 +202,10 @@ impl HotkeyHandler {
             self.sync()?;
         }
 
-        let terminals: Vec<_> = matching.iter().filter(|t| t.chain.len() == self.chain.len()).collect();
+        let terminals: Vec<_> = matching
+            .iter()
+            .filter(|t| t.chain.len() == self.chain.len())
+            .collect();
         let terminal = terminals.first();
         match terminal {
             Some(hotkey) => {
@@ -201,8 +215,7 @@ impl HotkeyHandler {
                     Err(e) => eprintln!("Error running command {}: {}", hotkey.command, e),
                 }
                 if hotkey.cycle.is_some() {
-                    if let Err(e) = self.config.cycle_hotkey(hotkey) {
-                    }
+                    if let Err(e) = self.config.cycle_hotkey(hotkey) {}
                 }
             }
             None => {
@@ -269,6 +282,7 @@ impl HotkeyHandler {
             grab: false,
             fifo: None,
             executor: Executor::new(redir_file),
+            subscribers: vec![],
         }
     }
 
@@ -349,5 +363,9 @@ impl HotkeyHandler {
     fn sync(&self) -> Result<()> {
         keyboard::kbd().sync_keyboard()?;
         Ok(())
+    }
+
+    pub fn add_subscriber(&mut self, request: IpcRequestObject) {
+        self.subscribers.push(request);
     }
 }

@@ -4,6 +4,7 @@ extern crate lazy_static;
 pub mod keyboard;
 pub mod parser;
 pub mod rhkd;
+pub mod rhkc;
 
 // -h
 //     Print the synopsis to standard output and exit.

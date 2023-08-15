@@ -60,6 +60,7 @@ impl Fifo {
             IpcMessage::Timeout => "TTimeout reached".to_string().into(),
             IpcMessage::Hotkey(hk) => format!("H{}", hk).into(),
             IpcMessage::Command(c) => format!("C{}", c).into(),
+            IpcMessage::ConfigReloaded => "RReload".to_string().into(),
             _ => None,
         };
         if let Some(m) = message {

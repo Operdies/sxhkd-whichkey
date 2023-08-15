@@ -9,8 +9,6 @@ pub struct FifoReader {
     buf: String,
 }
 
-pub struct SocketReader {}
-
 #[derive(Debug)]
 pub enum Stroke {
     Hotkey(String),
@@ -18,6 +16,7 @@ pub enum Stroke {
     BeginChain(String),
     EndChain(String),
     Timeout(String),
+    Reload,
     EOF,
 }
 
@@ -45,6 +44,7 @@ impl FifoReader {
                 'T' => Stroke::Timeout(line),
                 'H' => Stroke::Hotkey(line),
                 'C' => Stroke::Command(line),
+                'R' => Stroke::Reload,
                 _ => Stroke::EOF,
             };
             return Ok(stroke);
@@ -57,23 +57,6 @@ impl FifoReader {
     }
 }
 
-impl SocketReader {
-    fn next_event(&mut self) -> Result<Stroke> {
-        todo!()
-    }
-}
-
-impl Iterator for SocketReader {
-    type Item = Stroke;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match self.next_event() {
-            Ok(Stroke::EOF) => None,
-            Ok(x) => Some(x),
-            _ => None,
-        }
-    }
-}
 impl Iterator for FifoReader {
     type Item = Stroke;
 

@@ -15,7 +15,48 @@ pub enum CycleError {
     CycleNotFound,
 }
 
+pub struct FormatOptions {
+    group_bindings: bool,
+    include_comments: bool,
+}
+
+impl Default for FormatOptions {
+    fn default() -> Self {
+        Self {
+            group_bindings: true,
+            include_comments: true,
+        }
+    }
+}
+
 impl Config {
+    pub fn dump(&self, #[allow(unused)] format: FormatOptions) -> String {
+        let mut result = String::new();
+
+        for hk in self.get_hotkeys() {
+            if let Some(t) = &hk.title {
+                result.push_str(&format!("# {}\n", t))
+            }
+            if let Some(d) = &hk.description {
+                result.push_str(&format!("# {}\n", d))
+            }
+
+            for item in 0..hk.chain.len() - 1 {
+                let ch = &hk.chain[item];
+                result.push_str(&ch.repr);
+                if ch.is_locking() {
+                    result.push_str(" : ");
+                } else {
+                    result.push_str(" ; ");
+                }
+            }
+            result.push_str(&hk.chain.last().unwrap().repr);
+            result.push('\n');
+            result.push_str(&format!("  {}\n\n", hk.command));
+        }
+
+        result
+    }
     pub fn get_hotkeys(&self) -> &Vec<Hotkey> {
         &self.hotkeys
     }
@@ -35,12 +76,16 @@ impl Config {
             .position(|h| h == hk)
             .ok_or(CycleError::CycleNotFound)?;
         let hk = &self.hotkeys[start];
-        let cycle_period = hk.cycle.clone().map(|c| c.period).ok_or(CycleError::NotACycle)? as usize;
+        let cycle_period = hk
+            .cycle
+            .clone()
+            .map(|c| c.period)
+            .ok_or(CycleError::NotACycle)? as usize;
 
         // This should cycle the hotkeys so e.g.:
         // [ 1, 2, 3 ] -> [ 2, 3, 1 ] -> [ 3, 1, 2 ] when this method is called in succession
-        for idx in start..start + cycle_period-1 {
-            self.hotkeys.swap(idx, idx+1);
+        for idx in start..start + cycle_period - 1 {
+            self.hotkeys.swap(idx, idx + 1);
         }
         Ok(())
     }

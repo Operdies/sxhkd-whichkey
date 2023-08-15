@@ -571,4 +571,21 @@ super + shift + e ; { 1, 2, 3, 4, 5}
         assert_eq!(hotkeys[1].command, "bspc quit");
         Ok(())
     }
+    #[test]
+    fn singles_description() -> Result<()> {
+        let rule = b"# tiled
+super + t : t
+  bsp-layout set tiled ; bspc node -t tiled
+";
+        let tokens = Scanner::scan(rule)?;
+        let tree = super::token_parser::Parser::build(rule, &tokens)?;
+        let (hotkeys, errors) = tree.get_hotkeys();
+        print_errors(errors, rule);
+        assert_eq!(0, errors.len());
+        assert_eq!(1, hotkeys.len());
+        assert_eq!(hotkeys[0].command, "bsp-layout set tiled ; bspc node -t tiled");
+        assert_eq!(hotkeys[0].title, None);
+        assert_eq!(hotkeys[0].description, Some("tiled".into()));
+        Ok(())
+    }
 }

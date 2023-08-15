@@ -1,4 +1,5 @@
 use crate::parser::{config::Config, Chord};
+use crate::rhkc::ipc::{self, IpcClient, IpcRequestObject, IpcResponse};
 use crate::CliArguments;
 
 use super::keyboard;
@@ -7,13 +8,14 @@ use xcb::x::Event;
 
 use anyhow::{anyhow, bail, Result};
 use std::fmt::Display;
+use std::os::unix::net::UnixStream;
 use std::sync::mpsc;
 
 use serde::{Deserialize, Serialize};
 
-mod hotkey_handler;
 mod executor;
 mod fifo;
+mod hotkey_handler;
 use hotkey_handler::*;
 
 #[derive(Debug)]
@@ -23,9 +25,10 @@ enum Message {
     ToggleGrab,
     Event(Key),
     Timeout,
+    IpcRequest(ipc::IpcRequestObject),
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum IpcMessage {
     Notify(String),
     ConfigReloaded,
@@ -99,6 +102,27 @@ fn start_keyboard_handler(sender: mpsc::Sender<Message>) {
     });
 }
 
+fn start_ipc_handler(sender: mpsc::Sender<Message>) {
+    std::thread::spawn(move || -> Result<()> {
+        let mut server = ipc::IpcServer::force()?;
+        let listener = server.listener();
+        loop {
+            let Ok((client, _)) = listener.accept() else {
+                eprintln!("Failed to accept client");
+                continue;
+            };
+            let e = match IpcRequestObject::try_from(client) {
+                Ok(e) => e,
+                Err(e) => {
+                    eprintln!("Failed to parse request: {}", e);
+                    continue;
+                }
+            };
+            sender.send(Message::IpcRequest(e))?;
+        }
+    });
+}
+
 pub fn start(settings: CliArguments) -> Result<()> {
     let (sender, receiver) = mpsc::channel();
 
@@ -110,6 +134,7 @@ pub fn start(settings: CliArguments) -> Result<()> {
     state.setup()?;
 
     start_signal_handler(sender.clone())?;
+    start_ipc_handler(sender.clone());
     start_keyboard_handler(sender);
 
     for message in receiver.iter() {
@@ -118,6 +143,22 @@ pub fn start(settings: CliArguments) -> Result<()> {
             Message::ReloadConfig => state.reload()?,
             Message::ToggleGrab => state.toggle_grab()?,
             Message::Timeout => state.timeout()?,
+            Message::IpcRequest(mut request) => {
+                let err = match &request.request {
+                    ipc::IpcRequest::Marco => request.respond(IpcResponse::Polo),
+                    ipc::IpcRequest::DumpConfig => {
+                        request.respond(IpcResponse::ConfigDump(state.dump_config().to_string()))
+                    }
+                    ipc::IpcRequest::Subscribe => {
+                        state.add_subscriber(request);
+                        Ok(())
+                    }
+                    _ => request.respond(IpcResponse::NotImplemented),
+                };
+                if let Err(e) = err {
+                    eprintln!("Failed to send response: {}", e);
+                }
+            }
             Message::Shutdown => {
                 state.cleanup()?;
                 break;
