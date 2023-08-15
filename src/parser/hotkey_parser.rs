@@ -249,7 +249,32 @@ impl HotkeyParser {
                 Token::Text(r) if r.len() == 1 && context[r.start] == b'_' => {
                     Some(GroupToken::EmptySequence)
                 }
-                Token::Text(_) => Some(GroupToken::Text(token.get_string(context))),
+                Token::Text(_) => {
+                    let content = token.get_string(context);
+                    let mut it = content.chars();
+                    let mut chars: Vec<char> = vec![];
+                    while let Some(ch) = it.next() {
+                        match ch {
+                            '\\' => {
+                                let peek = it.next();
+                                match peek {
+                                    Some('\n') => {}
+                                    // Since we support escaping these characters inside of groups, we
+                                    // should unescape them when extracting the string
+                                    Some(',' | '{' | '}' | '-') => chars.push(peek.unwrap()),
+                                    Some(ch) => {
+                                        chars.push('\\');
+                                        chars.push(ch)
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            ch => chars.push(ch),
+                        }
+                    }
+                    Some(GroupToken::Text(chars.iter().collect()))
+                }
+
                 _ => None,
             }
         }
@@ -523,12 +548,9 @@ impl HotkeyParser {
                 command_string.remove(0);
             }
 
-            if command_string.ends_with('\\') {
-                command_string.pop();
-            }
-
-            let leading_trash: &[_] = &['\\', '\n', '\r', ' ', '\t'];
-            let command_string = command_string.trim_start_matches(leading_trash).trim().to_string();
+            let command_string = command_string
+                .trim()
+                .to_string();
 
             let chain = match self.make_chain(shortcut) {
                 Ok(chain) => chain,
