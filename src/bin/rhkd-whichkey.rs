@@ -7,8 +7,8 @@ use gtk::{
     gdk,
     glib::{self, MainContext},
     prelude::{
-        ApplicationExt, ApplicationExtManual, BinExt, ContainerExt, Continue, CssProviderExt,
-        GridExt, Inhibit, WidgetExt,
+        ApplicationExt, ApplicationExtManual, BinExt, ContainerExt, CssProviderExt,
+        GridExt, WidgetExt,
     },
     ApplicationWindow,
 };
@@ -161,10 +161,10 @@ fn build_ui(application: &gtk::Application) {
     // Connect the 'destroy' event to terminate the application
     window.connect_delete_event(|w, _| {
         w.hide();
-        Inhibit(true)
+        glib::Propagation::Stop
     });
 
-    let (sender, receiver) = MainContext::channel(glib::PRIORITY_DEFAULT);
+    let (sender, receiver) = MainContext::channel(glib::Priority::default());
     let _ = std::thread::spawn(move || {
         loop {
             for evt in Subscriber::default() {
@@ -196,7 +196,7 @@ fn build_ui(application: &gtk::Application) {
             Event::CommandEvent(c) => println!("{:?}", c),
             _ => (),
         };
-        Continue(true)
+        glib::ControlFlow::Continue
     });
 }
 
