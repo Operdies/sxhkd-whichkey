@@ -10,6 +10,9 @@
       "command": "cargo test --lib -- --show-output",
       "window position": "right"
     },
+    "rhkc": {
+      "command": "cargo run --bin rhkc -- -s /tmp/rhkd-fifo -c ~/.config/sxhkd/sxhkdrc"
+    },
     "rhkd": {
       "command": "cargo run --bin rhkd -- -s /tmp/rhkd-fifo -c ~/.config/sxhkd/sxhkdrc"
     }

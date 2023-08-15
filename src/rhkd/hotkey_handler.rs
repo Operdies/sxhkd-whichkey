@@ -51,6 +51,7 @@ impl HotkeyHandler {
         match self.config.reload() {
             Ok(new) => {
                 self.config = new;
+                self.ungrab()?;
                 self.grab()?;
                 self.publish(&IpcMessage::ConfigReloaded)?;
             }
@@ -91,6 +92,8 @@ impl HotkeyHandler {
         if !self.chain.is_empty() {
             self.chain.clear();
             self.publish(&IpcMessage::EndChain)?;
+            self.ungrab()?;
+            self.grab()?;
         }
         Ok(())
     }
@@ -193,6 +196,10 @@ impl HotkeyHandler {
                 replay = true;
                 break;
             }
+            let next_chord = &hk.chain.get(self.chain.len());
+            if let Some(next) = next_chord {
+                let _ = Self::grab_chain(next);
+            }
         }
 
         // We should be nice X citizens and replay / sync as early as possible
@@ -292,57 +299,41 @@ impl HotkeyHandler {
             Err(FifoError::FifoNotConfigured) => {}
             Err(e) => Err(e)?,
         }
-        self.grab()?;
 
         let escape_keysym = self.cli.abort_keysym.as_deref().unwrap_or("Escape");
         let keysym = keyboard::symbol_from_string(escape_keysym)?;
         let escape_symbols = keyboard::kbd().get_keycodes(keysym);
         let Some(keycodes) = escape_symbols else { bail!(format!("No keycode for specified abort symbol '{}'", escape_keysym))};
 
-        for key in keycodes.iter() {
-            self.grab_key(*key, ModMask::from_bits_truncate(0))?;
-        }
-
         self.abort = AbortKeysym { keycodes };
+
+        self.ungrab()?;
+        self.grab()?;
 
         Ok(())
     }
 
-    fn grab_key(&self, keycode: u8, modfield: ModMask) -> Result<()> {
-        keyboard::kbd().grab(keycode, modfield)?;
+    fn grab_chain(chain: &Chord) -> Result<()> {
+        let kbd = keyboard::kbd();
+        if let Some(keycodes) = kbd.get_keycodes(chain.keysym) {
+            for keycode in keycodes {
+                if let Err(e) = kbd.grab(keycode, chain.modfield.into()) {
+                    eprintln!("Error grabbing '{}': {}", chain.repr, e);
+                }
+            }
+        }
         Ok(())
     }
 
     fn grab(&mut self) -> Result<()> {
-        self.ungrab()?;
-
-        let kbd = keyboard::kbd();
-
         self.abort.keycodes.iter().for_each(|keycode| {
-            if let Err(e) = kbd.grab(*keycode, ModMask::from_bits_truncate(0)) {
+            if let Err(e) = keyboard::kbd().grab(*keycode, ModMask::from_bits_truncate(0)) {
                 println!("Failed to grab Escape {}: {}", keycode, e);
             }
         });
 
-        let mut repr_map: HashMap<String, bool> = Default::default();
-        'outer: for hotkey in self.config.get_hotkeys() {
-            for chain in &hotkey.chain {
-                if let Some(keycodes) = kbd.get_keycodes(chain.keysym) {
-                    for keycode in keycodes {
-                        if let Err(e) = self.grab_key(keycode, chain.modfield.into()) {
-                            if repr_map.insert(chain.repr.clone(), true).is_none() {
-                                eprintln!("Error grabbing '{}': {}", chain.repr, e);
-                            }
-                        }
-                    }
-                } else {
-                    eprintln!(
-                    "Failed to get keycode for symbol in chain: {:?}. Skipping this hotkey. ({:?})",
-                    chain, hotkey
-                );
-                    continue 'outer;
-                }
-            }
+        for hotkey in self.config.get_hotkeys() {
+            let _ = Self::grab_chain(&hotkey.chain[0]);
         }
         self.grab = true;
         Ok(())

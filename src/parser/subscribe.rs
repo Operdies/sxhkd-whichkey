@@ -52,10 +52,13 @@ fn get_valid_continuations(cfg: &Vec<Hotkey>, strokes: &[Chord]) -> Vec<Hotkey> 
 }
 
 impl Subscriber {
-    pub fn new(fifo: &str) -> Self {
+    pub fn new<S>(fifo: S) -> Self
+    where
+        S: Into<String>,
+    {
         let args = crate::CliArguments::default();
         let config = load_config(args.config_path.as_deref()).unwrap();
-        let file = File::open(fifo).unwrap();
+        let file = File::open(fifo.into()).unwrap();
         let reader = BufReader::new(file);
         let cmd = command::FifoReader::new(reader);
         Self::from_fiforeader(cmd, config)
@@ -80,6 +83,13 @@ impl Iterator for Subscriber {
                 None => return None,
             }
         }
+    }
+}
+
+impl Default for Subscriber {
+    fn default() -> Self {
+        let cfg = CliArguments::default();
+        Self::new(cfg.status_fifo.unwrap())
     }
 }
 
