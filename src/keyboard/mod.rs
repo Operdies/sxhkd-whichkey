@@ -28,6 +28,9 @@ impl Keyboard {
         Ok(())
     }
 
+    pub fn poll_event(&self) -> Result<Option<xcb::Event>, xcb::Error> {
+        self.conn.poll_for_event()
+    }
     pub fn next_event(&self) -> xcb::Result<xcb::Event> {
         self.conn.wait_for_event()
     }
@@ -185,6 +188,9 @@ impl Keyboard {
 }
 
 impl Keyboard {
+    pub fn connection(&self) -> &xcb::Connection {
+        &self.conn
+    }
     pub fn new() -> anyhow::Result<Keyboard> {
         let (conn, screen_num) = xcb::Connection::connect(None)?;
         let setup = conn.get_setup();
@@ -289,8 +295,3 @@ pub fn modfield_from_keysym(keysym: &str) -> u32 {
     KEYBOARD.modfield_from_keysym(keysym)
 }
 
-/// # Safety
-/// This is never safe, except immediately before process exit
-pub unsafe fn drop_keyboard() {
-    // TODO figure out how this could be done
-}

@@ -4,12 +4,16 @@ use crate::CliArguments;
 
 use super::keyboard;
 use super::parser::config;
+use nix::sys::select::FdSet;
+use nix::sys::signal::Signal::SIGUSR2;
 use xcb::x::Event;
 
 use anyhow::{anyhow, bail, Result};
 use std::fmt::Display;
+use std::os::fd::AsRawFd;
 use std::os::unix::net::UnixStream;
-use std::sync::mpsc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{mpsc, Arc};
 
 use serde::{Deserialize, Serialize};
 
@@ -17,16 +21,6 @@ mod executor;
 mod fifo;
 mod hotkey_handler;
 use hotkey_handler::*;
-
-#[derive(Debug)]
-enum Message {
-    Shutdown,
-    ReloadConfig,
-    ToggleGrab,
-    Event(Key),
-    Timeout,
-    IpcRequest(ipc::IpcRequestObject),
-}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum IpcMessage {
@@ -39,32 +33,6 @@ pub enum IpcMessage {
     Command(String),
 }
 
-fn start_signal_handler(sender: mpsc::Sender<Message>) -> Result<()> {
-    use signal_hook::consts::signal::*;
-    use signal_hook::iterator::Signals;
-
-    let mut signals = Signals::new([SIGUSR1, SIGUSR2, SIGALRM, SIGINT, SIGTERM])?;
-    std::thread::spawn(move || -> anyhow::Result<()> {
-        for signal in &mut signals {
-            let res = match signal {
-                SIGUSR1 => sender.send(Message::ReloadConfig),
-                SIGUSR2 => sender.send(Message::ToggleGrab),
-                SIGALRM => sender.send(Message::Timeout),
-                SIGINT | SIGTERM | SIGHUP => sender.send(Message::Shutdown),
-
-                _ => Ok(()),
-            };
-            if res.is_err() {
-                eprintln!("Failed to send singal across chanenl. Shutting down.");
-                sender.send(Message::Shutdown)?;
-                res?;
-            }
-        }
-        Ok(())
-    });
-    Ok(())
-}
-
 fn get_lockfields() -> u32 {
     let num_lock = keyboard::modfield_from_keysym("Num_Lock");
     let scroll_lock = keyboard::modfield_from_keysym("Scroll_Lock");
@@ -72,100 +40,97 @@ fn get_lockfields() -> u32 {
     num_lock | scroll_lock | lock
 }
 
-fn start_keyboard_handler(sender: mpsc::Sender<Message>) {
-    let lock = get_lockfields();
-    let mask = !lock & 255;
-    std::thread::spawn(move || -> Result<()> {
-        loop {
-            let evt = keyboard::kbd().next_event();
-            if let Ok(e) = evt {
-                if let Ok(mut key) = Key::try_from(&e) {
-                    // Discard num lock / caps lock / scroll lock
-                    key.modfield &= mask;
-                    sender.send(Message::Event(key))?;
-                }
-            } else {
-                let e = evt.unwrap_err();
-                match e {
-                    xcb::Error::Connection(_) => {
-                        break;
-                    }
-                    xcb::Error::Protocol(x) => {
-                        println!("Protocol error: {}", x);
-                        continue;
-                    }
-                }
-            }
-        }
-        sender.send(Message::Shutdown)?;
-        Ok(())
-    });
+lazy_static! {
+    static ref LOCK_MASK: u32 = !get_lockfields() & 255;
 }
 
-fn start_ipc_handler(sender: mpsc::Sender<Message>) {
-    std::thread::spawn(move || -> Result<()> {
-        let mut server = ipc::IpcServer::force()?;
-        let listener = server.listener();
-        loop {
-            let Ok((client, _)) = listener.accept() else {
-                eprintln!("Failed to accept client");
-                continue;
-            };
-            let e = match IpcRequestObject::try_from(client) {
-                Ok(e) => e,
-                Err(e) => {
-                    eprintln!("Failed to parse request: {}", e);
-                    continue;
-                }
-            };
-            sender.send(Message::IpcRequest(e))?;
-        }
-    });
+fn as_key(event: &xcb::Event) -> Option<Key> {
+    if let Ok(mut key) = Key::try_from(event) {
+        key.modfield &= *LOCK_MASK;
+        Some(key)
+    } else {
+        None
+    }
 }
 
 pub fn start(settings: CliArguments) -> Result<()> {
-    let (sender, receiver) = mpsc::channel();
-
-    let mut state = {
+    let mut hotkey_handler = {
         let cfg = config::load_config(settings.config_path.as_deref())?;
         HotkeyHandler::new(settings, cfg)
     };
+    hotkey_handler.setup()?;
 
-    state.setup()?;
+    let keyboard_fd = keyboard::kbd().connection().as_raw_fd();
+    let ipc_server = ipc::DroppableListener::force()?;
+    let socket = &ipc_server.listener;
+    socket.set_nonblocking(true)?;
+    let socket_fd = socket.as_raw_fd();
 
-    start_signal_handler(sender.clone())?;
-    start_ipc_handler(sender.clone());
-    start_keyboard_handler(sender);
+    use signal_hook::consts::signal::*;
+    let toggle_grab: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
+    let reload_config: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
+    let timeout: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
+    let terminate: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
 
-    for message in receiver.iter() {
-        match message {
-            Message::Event(key) => state.handle_key(key)?,
-            Message::ReloadConfig => state.reload()?,
-            Message::ToggleGrab => state.toggle_grab()?,
-            Message::Timeout => state.timeout()?,
-            Message::IpcRequest(mut request) => {
-                let err = match &request.request {
-                    ipc::IpcRequest::Marco => request.respond(IpcResponse::Polo),
-                    ipc::IpcRequest::DumpConfig => {
-                        request.respond(IpcResponse::ConfigDump(state.dump_config().to_string()))
+    signal_hook::flag::register(SIGUSR1, Arc::clone(&reload_config))?;
+    signal_hook::flag::register(SIGUSR2, Arc::clone(&toggle_grab))?;
+    signal_hook::flag::register(SIGALRM, Arc::clone(&timeout))?;
+    signal_hook::flag::register(SIGINT, Arc::clone(&terminate))?;
+    signal_hook::flag::register(SIGTERM, Arc::clone(&terminate))?;
+    let kbd = keyboard::kbd();
+    let mut sock_buf = String::new();
+    loop {
+        let mut fd_list = FdSet::new();
+        fd_list.insert(keyboard_fd);
+        fd_list.insert(socket_fd);
+        match nix::sys::select::select(None, &mut fd_list, None, None, None) {
+            // Select returned because one of the fd's are ready for reading
+            Ok(c) if c > 0 => {
+                let ready = fd_list.fds(None);
+                for fd in ready {
+                    if fd == keyboard_fd {
+                        // Drain the connection
+                        while let Some(evt) = kbd.poll_event()? {
+                            if let Some(key) = as_key(&evt) {
+                                hotkey_handler.handle_key(key)?;
+                            }
+                        }
+                    } else if fd == socket_fd {
+                        use std::io::Read;
+                        while let Ok((mut client, _)) = socket.accept() {
+                            sock_buf.clear();
+                            let mut read_buf = [0; 100];
+                            if let Ok(count) = client.read(&mut read_buf) {
+                                let str = String::from_utf8_lossy(&read_buf[0..count]);
+                                // TODO: Implement IPC
+                                println!("Client said: {}", str);
+                            }
+                        }
                     }
-                    ipc::IpcRequest::Subscribe => {
-                        state.add_subscriber(request);
-                        Ok(())
-                    }
-                    _ => request.respond(IpcResponse::NotImplemented),
-                };
-                if let Err(e) = err {
-                    eprintln!("Failed to send response: {}", e);
                 }
             }
-            Message::Shutdown => {
-                state.cleanup()?;
-                break;
+            // An error indicates the select was interrupted by a signal
+            Err(_) => {
+                if terminate.swap(false, Ordering::Relaxed) {
+                    hotkey_handler.cleanup()?;
+                    return Ok(());
+                }
+                if timeout.swap(false, Ordering::Relaxed) {
+                    hotkey_handler.timeout()?;
+                }
+                if reload_config.swap(false, Ordering::Relaxed) {
+                    hotkey_handler.reload()?;
+                }
+                if toggle_grab.swap(false, Ordering::Relaxed) {
+                    hotkey_handler.toggle_grab()?;
+                }
+            }
+            // I'm not sure if this can happen?
+            _ => {
+                println!("'select' passsed with no reayd fds and no errors?");
             }
         }
     }
-    Ok(())
 }
 
 #[derive(Debug, Copy, Clone)]

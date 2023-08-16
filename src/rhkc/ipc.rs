@@ -1,4 +1,5 @@
 use std::io::{Read, Write};
+use std::os::fd::AsRawFd;
 use std::{
     os::unix::net::{UnixListener, UnixStream},
     path::PathBuf,
@@ -102,7 +103,7 @@ fn send_request(request: &IpcRequest) -> Result<IpcResponse, IpcError> {
     Ok(serde_json::from_slice(&response)?)
 }
 
-fn get_socket_path() -> String {
+pub fn get_socket_path() -> String {
     std::env::var("RHKD_SOCKET_PATH").unwrap_or(format!(
         "/tmp/rhkd_socket_{}",
         std::env::var("DISPLAY").unwrap_or("_".to_string())
@@ -169,6 +170,28 @@ impl SocketReader {
         let stream: serde_json::StreamDeserializer<'_, serde_json::de::IoRead<&mut UnixStream>, R> =
             serde_json::Deserializer::from_reader(&mut self.connection).into_iter::<R>();
         Ok(stream)
+    }
+}
+
+pub struct DroppableListener {
+    path: PathBuf,
+    pub listener: UnixListener,
+}
+impl DroppableListener {
+    pub fn force() -> Result<Self, IpcError> {
+        let path = get_socket_path();
+        let _ = std::fs::remove_file(&path);
+        Self::new(path.into())
+    }
+    pub fn new(path: PathBuf) -> Result<Self, IpcError> {
+        let listener = UnixListener::bind(&path)?;
+        Ok(Self { path, listener })
+    }
+}
+
+impl Drop for DroppableListener {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
     }
 }
 
