@@ -89,12 +89,10 @@ impl HotkeyHandler {
     }
 
     fn end_chain(&mut self) -> Result<()> {
-        if !self.chain.is_empty() {
-            self.chain.clear();
-            self.publish(&IpcMessage::EndChain)?;
-            self.ungrab()?;
-            self.grab()?;
-        }
+        self.ungrab()?;
+        self.grab()?;
+        self.chain.clear();
+        self.publish(&IpcMessage::EndChain)?;
         Ok(())
     }
 
@@ -185,7 +183,7 @@ impl HotkeyHandler {
 
         if matching.is_empty() {
             self.chain.pop();
-            self.replay()?;
+            self.sync()?;
             return Ok(());
         }
 
@@ -261,7 +259,7 @@ impl HotkeyHandler {
                 }
             }
             if chained && self.chain.is_empty() {
-                self.publish(&IpcMessage::EndChain)?;
+                self.end_chain()?;
             }
         }
         Ok(())
