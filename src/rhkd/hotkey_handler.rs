@@ -258,7 +258,7 @@ impl HotkeyHandler {
                     self.chain.pop();
                 }
             }
-            if chained && self.chain.is_empty() {
+            if chained && !self.chain_locked() && self.chain.is_empty() {
                 self.end_chain()?;
             }
         }
