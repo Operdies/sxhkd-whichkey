@@ -1,17 +1,22 @@
 use std::hash::Hash;
+use std::io::{BufRead, BufReader, Read, Write};
+use std::os::unix::net::UnixStream;
 
-use rhkd::parser::subscribe::{Event, KeyEvent, Subscriber};
-use rhkd::parser::Hotkey;
+use rhkd::parser::config::load_config;
+use rhkd::parser::{self, Chord, Hotkey};
+use rhkd::CliArguments;
 
 use gtk::{
     gdk,
     glib::{self, MainContext},
     prelude::{
-        ApplicationExt, ApplicationExtManual, BinExt, ContainerExt, CssProviderExt,
-        GridExt, WidgetExt,
+        ApplicationExt, ApplicationExtManual, BinExt, ContainerExt, CssProviderExt, GridExt,
+        WidgetExt,
     },
     ApplicationWindow,
 };
+use rhkd::rhkc::ipc::{self, get_socket_path, IpcCommand, SubscribeCommand};
+use rhkd::rhkd::hotkey_handler::HotkeyHandler;
 
 fn group_by<T, P, T2>(input: Vec<T>, selector: P) -> Vec<Vec<T>>
 where
@@ -96,6 +101,7 @@ fn build_grid(event: &KeyEvent) -> gtk::Grid {
                     .collect::<Vec<_>>()
                     .join(&format!(" {} ", arrow));
                 let command = hotkey.description();
+
                 let continuation = gtk::Label::new(Some(&continuation));
                 continuation.set_widget_name("path");
                 let command = gtk::Label::new(Some(&command));
@@ -166,16 +172,89 @@ fn build_ui(application: &gtk::Application) {
 
     let (sender, receiver) = MainContext::channel(glib::Priority::default());
     let _ = std::thread::spawn(move || {
-        loop {
-            for evt in Subscriber::default() {
-                if sender.send(evt).is_err() {
-                    // Break in case of send error
-                    break;
+        let args = CliArguments::default();
+        let config_path = args.config_path.as_deref();
+        let config = load_config(config_path).expect("Failed to load config.");
+        let fifo = args.status_fifo.clone();
+        let handler = rhkd::rhkd::hotkey_handler::HotkeyHandler::new(args.clone(), config);
+
+        fn read_lines<R: Read>(
+            reader: BufReader<R>,
+            handler: &HotkeyHandler,
+            sender: glib::Sender<Event>,
+        ) {
+            let hotkeys = handler.clone_hotkeys();
+            for mut line in reader.lines().flatten() {
+                let prefix = line.remove(0);
+                let stroke = match prefix {
+                    'B' => Stroke::BeginChain(line),
+                    'E' => Stroke::EndChain(line),
+                    'T' => Stroke::Timeout(line),
+                    'H' => Stroke::Hotkey(line),
+                    'C' => Stroke::Command(line),
+                    'R' => Stroke::Reload,
+                    x => {
+                        eprintln!("Failed to parse line {}{}", x, line);
+                        continue;
+                    }
+                };
+
+                let err = match stroke {
+                    Stroke::BeginChain(_) => sender.send(Event::ChainStarted),
+                    Stroke::EndChain(_) => sender.send(Event::ChainEnded),
+                    Stroke::Hotkey(ref h) => match parser::parse_chord_chain(h) {
+                        Ok(chords) => {
+                            let hotkeys = HotkeyHandler::find_hotkeys_for_chords(&hotkeys, &chords);
+                            if hotkeys.is_empty() {
+                                continue;
+                            }
+                            let event = Event::KeyEvent(KeyEvent {
+                                config: hotkeys,
+                                keys: chords.clone(),
+                                current_index: chords.len(),
+                            });
+                            sender.send(event)
+                        }
+                        Err(e) => {
+                            eprintln!("Failed to parse keys from {}: {}", h, e);
+                            continue;
+                        }
+                    },
+                    _ => {
+                        continue;
+                    }
+                };
+                if let Err(e) = err {
+                    eprintln!("Error: {}", e);
                 }
             }
-            // The subscriber stopped yielding events, likely because the FIFO was closed (e.g.
-            // rhkd was stopped)
-            // Let's just wait a second and see if it starts back up
+        }
+
+        loop {
+            if let Some(ref fifo) = fifo {
+                let f = std::fs::File::open(fifo).expect("Failed to open fifo");
+                let reader = BufReader::new(f);
+                println!("Fifo connected!");
+                read_lines(reader, &handler, sender.clone());
+            } else {
+                use ipc::SubscribeEventMask;
+                let mut socket =
+                    UnixStream::connect(get_socket_path()).expect("Failed to connect to socket");
+                let cmd: Vec<u8> = IpcCommand::Subscribe(SubscribeCommand {
+                    events: vec![
+                        SubscribeEventMask::Command,
+                        SubscribeEventMask::Hotkey,
+                        SubscribeEventMask::Chain,
+                    ],
+                })
+                .into();
+                socket
+                    .write_all(&cmd)
+                    .expect("Failed to communicate with socket");
+                let reader = BufReader::new(socket);
+                println!("Socket connected!");
+                read_lines(reader, &handler, sender.clone());
+            };
             std::thread::sleep(std::time::Duration::from_secs(1));
         }
     });
@@ -193,7 +272,6 @@ fn build_ui(application: &gtk::Application) {
             Event::ChainEnded => {
                 window.hide();
             }
-            Event::CommandEvent(c) => println!("{:?}", c),
             _ => (),
         };
         glib::ControlFlow::Continue
@@ -223,4 +301,27 @@ fn main() -> glib::ExitCode {
     });
     let empty: Vec<&str> = vec![];
     application.run_with_args(&empty)
+}
+
+#[derive(Debug, Clone)]
+pub enum Event {
+    ChainStarted,
+    ChainEnded,
+    KeyEvent(KeyEvent),
+}
+
+#[derive(Debug, Clone)]
+pub struct KeyEvent {
+    pub config: Vec<Hotkey>,
+    pub keys: Vec<Chord>,
+    pub current_index: usize,
+}
+
+enum Stroke {
+    Hotkey(String),
+    Command(String),
+    BeginChain(String),
+    EndChain(String),
+    Timeout(String),
+    Reload,
 }

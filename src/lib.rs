@@ -8,7 +8,7 @@ pub mod rhkd;
 
 use clap::Parser;
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Clone)]
 #[command(
     author = "Alex",
     version = "0.1.0",

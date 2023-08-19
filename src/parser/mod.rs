@@ -1,6 +1,4 @@
-pub mod command;
 pub mod config;
-pub mod subscribe;
 pub use types::Hotkey;
 pub mod types;
 
@@ -596,6 +594,29 @@ super + t : t
         );
         assert_eq!(hotkeys[0].title, None);
         assert_eq!(hotkeys[0].description, Some("tiled".into()));
+        Ok(())
+    }
+
+    #[test]
+    fn test_no_title_or_description() -> Result<()> {
+        let rule = b"
+super + F4
+  echo {1,2} {3,4}
+
+super + F6 ; a ; b
+  echo 123
+";
+        let tokens = Scanner::scan(rule)?;
+        let tree = super::token_parser::Parser::build(rule, &tokens)?;
+        let (hotkeys, errors) = tree.get_hotkeys();
+        print_errors(errors, rule);
+        assert_eq!(0, errors.len());
+        assert_eq!(5, hotkeys.len());
+
+        for hk in hotkeys {
+            assert_eq!(None, hk.title);
+            assert_eq!(None, hk.description);
+        }
         Ok(())
     }
 }

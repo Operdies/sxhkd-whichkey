@@ -7,6 +7,7 @@ use std::time::Duration;
 use super::keyboard;
 use super::parser::config;
 use nix::sys::select::FdSet;
+use thiserror::Error;
 use xcb::x::Event;
 
 use anyhow::{anyhow, bail, Result};
@@ -18,7 +19,7 @@ use std::sync::Arc;
 
 mod executor;
 mod fifo;
-mod hotkey_handler;
+pub mod hotkey_handler;
 use hotkey_handler::*;
 
 #[derive(Debug, Clone)]
@@ -33,8 +34,11 @@ pub enum IpcMessage {
     Error(String),
 }
 
+#[derive(Error, Debug)]
 pub enum IpcMessageParseError {
+    #[error("No input")]
     InputEmpty,
+    #[error("Unrecognized prefix '{0}'")]
     UnknownPrefix(char),
 }
 

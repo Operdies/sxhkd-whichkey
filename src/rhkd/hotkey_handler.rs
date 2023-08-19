@@ -142,7 +142,7 @@ impl HotkeyHandler {
         }
     }
 
-    fn hotkey_matches(&self, hk: &Hotkey, chain: &[ChainItem]) -> bool {
+    fn hotkey_matches(hk: &Hotkey, chain: &[ChainItem]) -> bool {
         for (i, c) in chain.iter().enumerate() {
             match hk.chain.get(i) {
                 Some(v) if &c.key == v => {
@@ -156,10 +156,21 @@ impl HotkeyHandler {
         true
     }
 
+    pub fn find_hotkeys_for_chords(source: &[Hotkey], chain: &[Chord]) -> Vec<Hotkey> {
+        source
+            .iter()
+            .filter(|hk| {
+                hk.chain.len() > chain.len()
+                    && chain.iter().zip(&hk.chain).all(|(a, b)| a.repr == b.repr)
+            })
+            .cloned()
+            .collect()
+    }
+
     fn find_hotkey(&self, chain: &[ChainItem]) -> Vec<Hotkey> {
         let mut result = vec![];
         for hk in self.config.get_hotkeys() {
-            if self.hotkey_matches(hk, chain) {
+            if Self::hotkey_matches(hk, chain) {
                 result.push(hk.clone());
             }
         }
@@ -434,6 +445,7 @@ impl HotkeyHandler {
     }
 
     fn regrab(&mut self) {
+        let _ = self.ungrab_all();
         if !self.chain_locked() {
             Self::grab_index(self.config.get_hotkeys(), 0);
         }
@@ -481,6 +493,10 @@ impl HotkeyHandler {
                 .zip(&new.chain)
                 .all(|(a, b)| a.eq_relaxed(b))
         })
+    }
+
+    pub fn clone_hotkeys(&self) -> Vec<Hotkey> {
+        self.config.get_hotkeys().clone()
     }
 
     pub fn add_bindings(&mut self, mut client: UnixStream, bind: BindCommand) {

@@ -672,7 +672,7 @@ impl Unit {
             }
 
             let command = HotkeyParser::select_variant(commands, ct);
-            let description = if dt.iter().all(|d| d.is_some()) {
+            let description = if !descriptions.is_empty() && dt.iter().all(|d| d.is_some()) {
                 Some(HotkeyParser::select_variant(
                     descriptions,
                     dt.into_iter().map(|o| o.unwrap()).collect(),
