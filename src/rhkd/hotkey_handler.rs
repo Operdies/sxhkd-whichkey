@@ -9,7 +9,6 @@ use super::keyboard;
 use xcb::x::ModMask;
 
 use anyhow::{bail, Result};
-use std::collections::HashMap;
 
 #[derive(Default)]
 struct AbortKeysym {
@@ -90,8 +89,8 @@ impl HotkeyHandler {
 
     fn end_chain(&mut self) -> Result<()> {
         self.ungrab()?;
-        self.grab()?;
         self.chain.clear();
+        self.grab()?;
         self.publish(&IpcMessage::EndChain)?;
         Ok(())
     }
@@ -100,7 +99,9 @@ impl HotkeyHandler {
         nix::unistd::alarm::cancel();
     }
     fn schedule_timeout(&self) {
-        nix::unistd::alarm::set(self.cli.timeout);
+        if !self.chain.is_empty() && !self.chain_locked() {
+            nix::unistd::alarm::set(self.cli.timeout);
+        }
     }
 
     fn hotkey_matches(&self, hk: &Hotkey, chain: &[ChainItem]) -> bool {
@@ -121,10 +122,10 @@ impl HotkeyHandler {
         let mut result = vec![];
         for hk in self.config.get_hotkeys() {
             if self.hotkey_matches(hk, chain) {
-                result.push(hk);
+                result.push(hk.clone());
             }
         }
-        result.into_iter().cloned().collect()
+        result.into_iter().collect()
     }
 
     fn align_locks(&mut self, hotkey: &Hotkey) {
@@ -140,6 +141,18 @@ impl HotkeyHandler {
         self.last_lock_index().is_some()
     }
 
+    fn publish_hotkey(&mut self, chain: &Hotkey) -> Result<()> {
+        let mut hotkey_string = String::new();
+        for item in &chain.chain[0..self.chain.len() - 1] {
+            hotkey_string.push_str(&item.repr);
+            hotkey_string.push_str(if item.is_locking() { " : " } else { " ; " });
+        }
+        let last = &chain.chain[self.chain.len() - 1];
+        hotkey_string.push_str(&last.repr);
+        self.publish(&IpcMessage::Hotkey(hotkey_string))?;
+        Ok(())
+    }
+
     pub fn handle_key(&mut self, key: Key) -> Result<()> {
         if key.is_press {
             self.cancel_timeout();
@@ -148,13 +161,13 @@ impl HotkeyHandler {
         let mut chained = !self.chain.is_empty();
         let locked = self.chain_locked();
 
-        if self.is_abort(&key) {
+        // This makes it impossible to use ABORT_KEYSYM in a binding,
+        // but that's a necessary compromise because it would otherwise
+        // be possible to get stuck in a locking chain , e.g. super + a : ABORT_KEYSYM could never
+        // terminate
+        if chained && self.is_abort(&key) {
             self.end_chain()?;
-            if chained || locked {
-                self.sync()?;
-            } else {
-                self.replay()?;
-            }
+            self.sync()?;
             return Ok(());
         }
 
@@ -165,15 +178,15 @@ impl HotkeyHandler {
         });
 
         // Find all hotkeys matching the current chain
-        let matching = self.find_hotkey(&self.chain);
+        let mut matching = self.find_hotkey(&self.chain);
         // If there are no matches for the current chain, and it isn't locked, check if another binding starts with this key.
         if chained && !locked && matching.is_empty() {
-            // If the current chain has no continuations,
             let new_chain = ChainItem {
                 key,
                 locking: false,
             };
-            let matching = self.find_hotkey(&[new_chain.clone()]);
+            matching = self.find_hotkey(&[new_chain.clone()]);
+            // If we started a new chain, we should abort the previous chain
             if !matching.is_empty() {
                 self.end_chain()?;
                 chained = false;
@@ -184,21 +197,20 @@ impl HotkeyHandler {
         if matching.is_empty() {
             self.chain.pop();
             self.sync()?;
+            self.schedule_timeout();
             return Ok(());
         }
 
-        let mut replay = false;
-        for hk in matching.iter() {
-            let this_chord = &hk.chain[self.chain.len() - 1];
-            if this_chord.replay_event.is_replay() {
-                replay = true;
-                break;
-            }
-            let next_chord = &hk.chain.get(self.chain.len());
-            if let Some(next) = next_chord {
-                let _ = Self::grab_chain(next);
-            }
-        }
+        self.publish_hotkey(&matching[0])?;
+
+        // Update the current chain to match the lock of whatever is currently matching.
+        self.align_locks(&matching[0]);
+
+        // We should replay this key if any matched chains has requested it
+        let replay = matching
+            .iter()
+            .filter_map(|h| h.chain.get(self.chain.len() - 1))
+            .any(|f| f.replay_event.is_replay());
 
         // We should be nice X citizens and replay / sync as early as possible
         if replay {
@@ -211,58 +223,57 @@ impl HotkeyHandler {
             .iter()
             .filter(|t| t.chain.len() == self.chain.len())
             .collect();
-        let terminal = terminals.first();
-        match terminal {
-            Some(hotkey) => {
-                self.publish(&IpcMessage::Command(hotkey.command.clone()))?;
-                match self.executor.run(hotkey) {
-                    Ok(_) => {}
-                    Err(e) => eprintln!("Error running command {}: {}", hotkey.command, e),
-                }
-                if hotkey.cycle.is_some() {
-                    if let Err(e) = self.config.cycle_hotkey(hotkey) {}
-                }
-            }
-            None => {
-                if !chained {
-                    self.publish(&IpcMessage::BeginChain)?;
-                }
-            }
+        if terminals.len() > 1 {
+            eprintln!(
+                "The sequence matched {} hotkeys, but only one will be triggered:\n{}",
+                terminals.len(),
+                terminals[0]
+            );
         }
-
-        // Update the current chain to match the lock of whatever is currently matching.
-        self.align_locks(&matching[0]);
-        if !self.chain.iter().any(|c| c.locking) {
-            // if matching.iter().any(|m| m.chain.len() > self.chain.len()) {
-            self.schedule_timeout();
-            // }
-        }
-
-        if let Some(chain) = matching.first() {
-            let mut hotkey_string = String::new();
-            for item in &chain.chain[0..self.chain.len() - 1] {
-                hotkey_string.push_str(&item.repr);
-                hotkey_string.push_str(if item.is_locking() { " : " } else { " ; " });
+        if let Some(hotkey) = terminals.get(0) {
+            self.publish(&IpcMessage::Command(hotkey.command.clone()))?;
+            match self.executor.run(hotkey) {
+                Ok(_) => {}
+                Err(e) => eprintln!("Error running command {}: {}", hotkey.command, e),
             }
-            let last = &chain.chain[self.chain.len() - 1];
-            hotkey_string.push_str(&last.repr);
-            self.publish(&IpcMessage::Hotkey(hotkey_string))?;
-        }
-
-        // If this was a terminal command, we should pop the current chain until we encounter a lock
-        if terminal.is_some() {
-            for idx in (0..self.chain.len()).rev() {
-                if self.chain[idx].locking {
-                    break;
-                } else {
-                    self.chain.pop();
+            if hotkey.cycle.is_some() {
+                if let Err(e) = self.config.cycle_hotkey(hotkey) {
+                    eprintln!("Error cycling hotkey: {}", e);
                 }
             }
-            if chained && !self.chain_locked() && self.chain.is_empty() {
+            self.pop_non_locking();
+            if self.chain.is_empty() && chained {
                 self.end_chain()?;
             }
         }
+
+        // update grab set
+        let _ = self.ungrab();
+        // If the chain isn't locked, we should keep index 0 grabbed
+        if !self.chain_locked() {
+            Self::grab_index(self.config.get_hotkeys(), 0);
+        }
+        if !self.chain.is_empty() {
+            self.grab_abort();
+            Self::grab_index(&matching, self.chain.len());
+            if !chained {
+                self.publish(&IpcMessage::BeginChain)?;
+            }
+        }
+
+        self.schedule_timeout();
+
         Ok(())
+    }
+
+    fn pop_non_locking(&mut self) {
+        // Keep popping the chain until a lock is encountered
+        while let Some(back) = self.chain.pop() {
+            if back.locking {
+                self.chain.push(back);
+                return;
+            }
+        }
     }
 
     pub fn timeout(&mut self) -> Result<()> {
@@ -311,7 +322,14 @@ impl HotkeyHandler {
         Ok(())
     }
 
-    fn grab_chain(chain: &Chord) -> Result<()> {
+    fn grab_abort(&self) {
+        self.abort.keycodes.iter().for_each(|keycode| {
+            if let Err(e) = keyboard::kbd().grab(*keycode, ModMask::from_bits_truncate(0)) {
+                println!("Failed to grab Escape {}: {}", keycode, e);
+            }
+        });
+    }
+    fn grab_chain(chain: &Chord) {
         let kbd = keyboard::kbd();
         if let Some(keycodes) = kbd.get_keycodes(chain.keysym) {
             for keycode in keycodes {
@@ -320,19 +338,17 @@ impl HotkeyHandler {
                 }
             }
         }
-        Ok(())
+    }
+
+    fn grab_index(hotkeys: &[Hotkey], index: usize) {
+        hotkeys
+            .iter()
+            .filter_map(|a| a.chain.get(index))
+            .for_each(Self::grab_chain);
     }
 
     fn grab(&mut self) -> Result<()> {
-        self.abort.keycodes.iter().for_each(|keycode| {
-            if let Err(e) = keyboard::kbd().grab(*keycode, ModMask::from_bits_truncate(0)) {
-                println!("Failed to grab Escape {}: {}", keycode, e);
-            }
-        });
-
-        for hotkey in self.config.get_hotkeys() {
-            let _ = Self::grab_chain(&hotkey.chain[0]);
-        }
+        Self::grab_index(self.config.get_hotkeys(), 0);
         self.grab = true;
         Ok(())
     }

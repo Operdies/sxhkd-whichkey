@@ -142,3 +142,20 @@ impl Hotkey {
             .unwrap_or_else(|| self.command.trim_matches(matches).into())
     }
 }
+
+impl Display for Hotkey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(ref title) = self.title {
+            f.write_str(&format!("# {}\n", title))?;
+        }
+        if let Some(ref description) = self.description {
+            f.write_str(&format!("# {}\n", description))?;
+        }
+        for item in &self.chain {
+            f.write_str(&item.repr)?;
+            f.write_str(" ")?;
+        }
+        f.write_str("\n  ")?;
+        f.write_str(&self.command)
+    }
+}
