@@ -83,7 +83,12 @@ impl<'a> Scanner<'a> {
                 }
             }
         }
-        Err(ConfigParseError::UnterminatedGroup(tokens.swap_remove(0)))?
+        Err(ConfigParseError::UnterminatedGroup(
+            tokens
+                .get(0)
+                .cloned()
+                .unwrap_or_else(|| Token::StartGroup(start..self.cursor)),
+        ))?
     }
 
     fn parse_command(&mut self) -> Result<Vec<Token>> {

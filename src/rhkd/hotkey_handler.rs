@@ -1,5 +1,7 @@
-use crate::parser::subscribe::Subscriber;
-use crate::parser::{Cycle, Hotkey};
+use crate::parser::config::load_config_from_bytes;
+use crate::parser::Hotkey;
+use crate::rhkc::ipc::{BindCommand, SubscribeEventMask, UnbindCommand};
+use std::io::Write;
 
 use super::fifo::{Fifo, FifoError};
 use super::*;
@@ -23,7 +25,12 @@ pub struct HotkeyHandler {
     grab: bool,
     fifo: Option<Fifo>,
     executor: Executor,
-    subscribers: Vec<IpcRequestObject>,
+    subscribers: Vec<Client>,
+}
+
+struct Client {
+    client: UnixStream,
+    event_mask: Vec<SubscribeEventMask>,
 }
 
 #[derive(Clone)]
@@ -33,15 +40,12 @@ struct ChainItem {
 }
 
 impl HotkeyHandler {
-    pub fn dump_config(&self) -> String {
-        self.config.dump(Default::default())
-    }
     pub fn toggle_grab(&mut self) -> Result<()> {
         if self.grab {
-            self.ungrab()?;
+            self.ungrab_all()?;
             self.grab = false;
         } else {
-            self.grab()?;
+            self.grab_index_0()?;
             self.grab = true;
         }
         Ok(())
@@ -50,8 +54,8 @@ impl HotkeyHandler {
         match self.config.reload() {
             Ok(new) => {
                 self.config = new;
-                self.ungrab()?;
-                self.grab()?;
+                self.ungrab_all()?;
+                self.grab_index_0()?;
                 self.publish(&IpcMessage::ConfigReloaded)?;
             }
             Err(e) => self.publish(&IpcMessage::Notify(format!(
@@ -63,15 +67,49 @@ impl HotkeyHandler {
     }
 
     pub fn publish(&mut self, message: &IpcMessage) -> Result<()> {
+        fn is_interested(mask: &[SubscribeEventMask], message: &IpcMessage) -> bool {
+            use SubscribeEventMask::*;
+            if mask.contains(&All) {
+                return true;
+            }
+            match message {
+                IpcMessage::Notify(_) => mask.contains(&Notifications),
+                IpcMessage::ConfigReloaded => mask.contains(&Reload),
+                IpcMessage::BeginChain | IpcMessage::EndChain => mask.contains(&Chain),
+                IpcMessage::Timeout => mask.contains(&Timeout),
+                IpcMessage::Hotkey(_) => mask.contains(&Hotkey),
+                IpcMessage::Command(_) => mask.contains(&Command),
+                IpcMessage::Error(_) => mask.contains(&Errors),
+            }
+        }
         println!("PUBLISH {:?}", message);
         if let Some(ref mut fifo) = self.fifo {
             fifo.write_message(message)?;
         }
-        for i in (0..self.subscribers.len()).rev() {
-            let sub = &mut self.subscribers[i];
-            if sub.send(message).is_err() {
-                self.subscribers.swap_remove(i);
+
+        let mut interested: Vec<_> = self
+            .subscribers
+            .iter_mut()
+            .enumerate()
+            .filter(|(_, f)| is_interested(&f.event_mask, message))
+            .collect();
+        if interested.is_empty() {
+            return Ok(());
+        }
+
+        let mut msg = message.to_string();
+        msg.push('\n');
+        let b = msg.as_bytes();
+        let mut remove = vec![];
+        for (i, client) in interested.iter_mut() {
+            let sub = &mut client.client;
+            if let Err(e) = sub.write_all(b) {
+                eprintln!("Dropping slow subscriber: {}", e);
+                remove.push(*i);
             }
+        }
+        for i in remove.into_iter().rev() {
+            self.subscribers.swap_remove(i);
         }
         Ok(())
     }
@@ -88,9 +126,9 @@ impl HotkeyHandler {
     }
 
     fn end_chain(&mut self) -> Result<()> {
-        self.ungrab()?;
+        self.ungrab_all()?;
         self.chain.clear();
-        self.grab()?;
+        self.grab_index_0()?;
         self.publish(&IpcMessage::EndChain)?;
         Ok(())
     }
@@ -223,22 +261,24 @@ impl HotkeyHandler {
             .iter()
             .filter(|t| t.chain.len() == self.chain.len())
             .collect();
-        if terminals.len() > 1 {
-            eprintln!(
+        if terminals.len() > 1 && terminals[0].cycle.is_none() {
+            self.report_error(format!(
                 "The sequence matched {} hotkeys, but only one will be triggered:\n{}",
                 terminals.len(),
                 terminals[0]
-            );
+            ))?;
         }
         if let Some(hotkey) = terminals.get(0) {
             self.publish(&IpcMessage::Command(hotkey.command.clone()))?;
             match self.executor.run(hotkey) {
                 Ok(_) => {}
-                Err(e) => eprintln!("Error running command {}: {}", hotkey.command, e),
+                Err(e) => {
+                    self.report_error(format!("Error running command {}: {}", hotkey.command, e))?
+                }
             }
             if hotkey.cycle.is_some() {
                 if let Err(e) = self.config.cycle_hotkey(hotkey) {
-                    eprintln!("Error cycling hotkey: {}", e);
+                    self.report_error(format!("Error cycling hotkey: {}", e))?;
                 }
             }
             self.pop_non_locking();
@@ -248,7 +288,7 @@ impl HotkeyHandler {
         }
 
         // update grab set
-        let _ = self.ungrab();
+        let _ = self.ungrab_all();
         // If the chain isn't locked, we should keep index 0 grabbed
         if !self.chain_locked() {
             Self::grab_index(self.config.get_hotkeys(), 0);
@@ -256,9 +296,10 @@ impl HotkeyHandler {
         if !self.chain.is_empty() {
             self.grab_abort();
             Self::grab_index(&matching, self.chain.len());
-            if !chained {
-                self.publish(&IpcMessage::BeginChain)?;
-            }
+        }
+
+        if !self.chain.is_empty() && !chained {
+            self.publish(&IpcMessage::BeginChain)?;
         }
 
         self.schedule_timeout();
@@ -284,7 +325,7 @@ impl HotkeyHandler {
 
     pub fn cleanup(&mut self) -> Result<()> {
         self.sync()?;
-        self.ungrab()?;
+        self.ungrab_all()?;
         Ok(())
     }
 
@@ -316,8 +357,8 @@ impl HotkeyHandler {
 
         self.abort = AbortKeysym { keycodes };
 
-        self.ungrab()?;
-        self.grab()?;
+        self.ungrab_all()?;
+        self.grab_index_0()?;
 
         Ok(())
     }
@@ -329,6 +370,7 @@ impl HotkeyHandler {
             }
         });
     }
+
     fn grab_chain(chain: &Chord) {
         let kbd = keyboard::kbd();
         if let Some(keycodes) = kbd.get_keycodes(chain.keysym) {
@@ -340,6 +382,11 @@ impl HotkeyHandler {
         }
     }
 
+    fn report_error(&mut self, error: String) -> Result<()> {
+        eprintln!("{}", error);
+        self.publish(&IpcMessage::Error(error))
+    }
+
     fn grab_index(hotkeys: &[Hotkey], index: usize) {
         hotkeys
             .iter()
@@ -347,12 +394,12 @@ impl HotkeyHandler {
             .for_each(Self::grab_chain);
     }
 
-    fn grab(&mut self) -> Result<()> {
+    fn grab_index_0(&mut self) -> Result<()> {
         Self::grab_index(self.config.get_hotkeys(), 0);
         self.grab = true;
         Ok(())
     }
-    fn ungrab(&mut self) -> Result<()> {
+    fn ungrab_all(&mut self) -> Result<()> {
         keyboard::kbd().ungrab_all()?;
         self.grab = false;
         Ok(())
@@ -370,7 +417,136 @@ impl HotkeyHandler {
         Ok(())
     }
 
-    pub fn add_subscriber(&mut self, request: IpcRequestObject) {
-        self.subscribers.push(request);
+    pub fn add_subscriber(&mut self, client: UnixStream, event_mask: Vec<SubscribeEventMask>) {
+        self.subscribers.push(Client { client, event_mask })
+    }
+
+    fn is_prefix_of(short: &[Chord], long: &[Chord]) -> bool {
+        if short.len() > long.len() {
+            return false;
+        }
+        for (s, l) in short.iter().zip(long) {
+            if !s.eq_relaxed(l) {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn regrab(&mut self) {
+        if !self.chain_locked() {
+            Self::grab_index(self.config.get_hotkeys(), 0);
+        }
+        if !self.chain.is_empty() {
+            self.grab_abort();
+            let matching = self.find_hotkey(&self.chain);
+            Self::grab_index(&matching, self.chain.len());
+        }
+        self.grab = true;
+    }
+
+    pub fn delete_bindings(&mut self, mut client: UnixStream, unbind: UnbindCommand) {
+        match crate::parser::parse_chord_chain(&unbind.hotkey) {
+            Ok(chords) => {
+                let hk = self.config.get_hotkeys_mut();
+                for i in (0..hk.len()).rev() {
+                    if Self::is_prefix_of(&chords, &hk[i].chain) {
+                        let _ = writeln!(client, "{}", &hk[i]);
+                    }
+                }
+                let keys = self.config.get_hotkeys_mut();
+                let prev_keys = keys.len();
+                keys.retain(|h| !Self::is_prefix_of(&chords, &h.chain));
+                let new_keys = keys.len();
+                let _ = writeln!(
+                    client,
+                    "\n# {} / {} keys deleted",
+                    prev_keys - new_keys,
+                    prev_keys
+                );
+                if prev_keys != new_keys {
+                    self.regrab();
+                }
+            }
+            Err(e) => {
+                let _ = writeln!(client, "{}", e);
+            }
+        }
+    }
+
+    fn get_first_interfering(new: &Hotkey, set: &[Hotkey]) -> Option<usize> {
+        set.iter().position(|hk| {
+            hk.chain
+                .iter()
+                .zip(&new.chain)
+                .all(|(a, b)| a.eq_relaxed(b))
+        })
+    }
+
+    pub fn add_bindings(&mut self, mut client: UnixStream, bind: BindCommand) {
+        let mut binding_text = String::new();
+        if let Some(title) = bind.title {
+            binding_text.push_str(&format!("# {}\n", title));
+        }
+        if let Some(description) = bind.description {
+            binding_text.push_str(&format!("# {}\n", description));
+        }
+        binding_text.push_str(&format!("{}\n", bind.hotkey));
+        binding_text.push_str(&format!("  {}\n", bind.command));
+
+        let new_bindings = load_config_from_bytes(binding_text.as_bytes());
+        match new_bindings {
+            Ok(new) => {
+                let new_hotkeys = new.into_hotkeys();
+                let current_hotkeys = self.config.get_hotkeys_mut();
+
+                let current = current_hotkeys.len();
+
+                // If overwrite is set, remove all interfering keys
+                if bind.overwrite {
+                    current_hotkeys.retain(|this| {
+                        let retain = !new_hotkeys.iter().any(|hk| {
+                            this.chain
+                                .iter()
+                                .zip(&hk.chain)
+                                .all(|(a, b)| a.eq_relaxed(b))
+                        });
+                        if !retain {
+                            let _ = writeln!(client, "# REMOVE\n{}", this);
+                        }
+                        retain
+                    });
+                }
+
+                let removed = current - current_hotkeys.len();
+                let added = new_hotkeys.len();
+
+                for hk in new_hotkeys.into_iter() {
+                    if !bind.overwrite {
+                        if let Some(idx) = Self::get_first_interfering(&hk, current_hotkeys) {
+                            let current = &current_hotkeys[idx];
+                            let _ = writeln!(
+                        client,
+                        "New hotkey would interfere with existing hotkey, and will not be added. Use the overwrite option to remove conflicting keys.\n# New:\n{}\nCurrent:\n{}",
+                        hk, current);
+                            continue;
+                        }
+                    }
+                    let _ = writeln!(client, "# ADD\n{}", hk);
+                    current_hotkeys.push(hk);
+                }
+                if removed > 0 || added > 0 {
+                    self.regrab();
+                }
+                let _ = writeln!(
+                    client,
+                    "\n# Added {} and removed {} hotkeys",
+                    added, removed
+                );
+            }
+            Err(e) => {
+                let _ = writeln!(client, "{}", e);
+            }
+        }
     }
 }

@@ -1,6 +1,6 @@
 use std::{fs::File, io::BufReader};
 
-use crate::{rhkc::ipc::SocketReader, CliArguments};
+use crate::CliArguments;
 
 use super::{
     command::{self, FifoReader, Stroke},

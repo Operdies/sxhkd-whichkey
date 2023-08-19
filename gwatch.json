@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/Operdies/gwatch.nvim/main/schema.json",
   "command": "cargo test --lib -- --show-output",
-  "window position": "right",
+  "window position": "bottom",
   "profiles": {
     "gui": {
       "command": "cargo run --bin rhkd-whichkey -- -s /tmp/sxhkd-fifo -c ~/.config/sxhkd/sxhkdrc"
@@ -11,7 +11,7 @@
       "window position": "right"
     },
     "rhkc": {
-      "command": "cargo run --bin rhkc -- -s /tmp/rhkd-fifo -c ~/.config/sxhkd/sxhkdrc"
+      "command": "cargo run --bin rhkc -- subscribe notifications hotkey"
     },
     "rhkd": {
       "command": "cargo run --bin rhkd -- -s /tmp/rhkd-fifo -c ~/.config/sxhkd/sxhkdrc"

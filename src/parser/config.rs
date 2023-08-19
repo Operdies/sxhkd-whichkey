@@ -15,54 +15,27 @@ pub enum CycleError {
     CycleNotFound,
 }
 
-pub struct FormatOptions {
-    group_bindings: bool,
-    include_comments: bool,
-}
-
-impl Default for FormatOptions {
-    fn default() -> Self {
-        Self {
-            group_bindings: true,
-            include_comments: true,
-        }
-    }
-}
-
 impl Config {
-    pub fn dump(&self, #[allow(unused)] format: FormatOptions) -> String {
-        let mut result = String::new();
+    pub fn get_hotkeys_mut(&mut self) -> &mut Vec<Hotkey> {
+        &mut self.hotkeys
+    }
 
-        for hk in self.get_hotkeys() {
-            if let Some(t) = &hk.title {
-                result.push_str(&format!("# {}\n", t))
-            }
-            if let Some(d) = &hk.description {
-                result.push_str(&format!("# {}\n", d))
-            }
-
-            for item in 0..hk.chain.len() - 1 {
-                let ch = &hk.chain[item];
-                result.push_str(&ch.repr);
-                if ch.is_locking() {
-                    result.push_str(" : ");
-                } else {
-                    result.push_str(" ; ");
-                }
-            }
-            result.push_str(&hk.chain.last().unwrap().repr);
-            result.push('\n');
-            result.push_str(&format!("  {}\n\n", hk.command));
-        }
-
-        result
+    pub fn into_hotkeys(self) -> Vec<Hotkey> {
+        self.hotkeys
     }
     pub fn get_hotkeys(&self) -> &Vec<Hotkey> {
         &self.hotkeys
     }
 
     pub fn reload(&mut self) -> Result<Config> {
-        load_config(self.path.as_deref())
+        if self.path.is_none() {
+            Ok(Config {
+                path: None,
+                hotkeys: vec![],
+            })
+        } else {
+            load_config(self.path.as_deref())
+        }
     }
 
     pub fn cycle_hotkey(&mut self, hk: &Hotkey) -> Result<(), CycleError> {
@@ -101,19 +74,28 @@ pub fn load_config(file: Option<&str>) -> Result<Config> {
     };
 
     let content = std::fs::read(&path).context(format!("Failed to read file '{}'", path))?;
-    let tokens = Scanner::scan(&content).context(format!("Error while parsing '{}'", path))?;
-    let tree = token_parser::Parser::build(&content, &tokens)?;
+    load_config_from_bytes(&content)
+        .context(format!("Error while parsing config '{}'", path))
+        .map(|f| Config {
+            path: Some(path),
+            hotkeys: f.hotkeys,
+        })
+}
+
+pub fn load_config_from_bytes(content: &[u8]) -> Result<Config> {
+    let tokens = Scanner::scan(content)?;
+    let tree = token_parser::Parser::build(content, &tokens)?;
     let (hotkeys, errors) = tree.get_hotkeys();
     for error in errors {
         if let Some(err) = error.downcast_ref::<ConfigParseError>() {
-            println!("{}", err.contextualize(&content));
+            println!("{}", err.contextualize(content));
         } else {
             println!("WARNING: {}", error);
         }
     }
 
     Ok(Config {
-        path: Some(path),
+        path: None,
         hotkeys: hotkeys.to_vec(),
     })
 }

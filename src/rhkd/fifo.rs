@@ -60,7 +60,8 @@ impl Fifo {
             IpcMessage::Timeout => "TTimeout reached".to_string().into(),
             IpcMessage::Hotkey(hk) => format!("H{}", hk).into(),
             IpcMessage::Command(c) => format!("C{}", c).into(),
-            IpcMessage::ConfigReloaded => "RReload".to_string().into(),
+            // The fifo should only implement the messages supported by SXHKD.
+            // Sockets support a wider range of messages and are preferred
             _ => None,
         };
         if let Some(m) = message {

@@ -1,11 +1,12 @@
 use crate::parser::{config::Config, Chord};
-use crate::rhkc::ipc::{self, IpcClient, IpcRequestObject, IpcResponse};
+use crate::rhkc::ipc::{self, IpcCommand};
 use crate::CliArguments;
+use std::io::Read;
+use std::time::Duration;
 
 use super::keyboard;
 use super::parser::config;
 use nix::sys::select::FdSet;
-use nix::sys::signal::Signal::SIGUSR2;
 use xcb::x::Event;
 
 use anyhow::{anyhow, bail, Result};
@@ -13,16 +14,14 @@ use std::fmt::Display;
 use std::os::fd::AsRawFd;
 use std::os::unix::net::UnixStream;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{mpsc, Arc};
-
-use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 mod executor;
 mod fifo;
 mod hotkey_handler;
 use hotkey_handler::*;
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Clone)]
 pub enum IpcMessage {
     Notify(String),
     ConfigReloaded,
@@ -31,8 +30,53 @@ pub enum IpcMessage {
     Timeout,
     Hotkey(String),
     Command(String),
+    Error(String),
 }
 
+pub enum IpcMessageParseError {
+    InputEmpty,
+    UnknownPrefix(char),
+}
+
+impl TryFrom<String> for IpcMessage {
+    type Error = IpcMessageParseError;
+
+    fn try_from(mut value: String) -> std::result::Result<Self, IpcMessageParseError> {
+        if value.is_empty() {
+            return Err(IpcMessageParseError::InputEmpty);
+        }
+        let start = value.remove(0);
+        let msg = match start {
+            'B' => IpcMessage::BeginChain,
+            'E' => IpcMessage::EndChain,
+            'T' => IpcMessage::Timeout,
+            'C' => IpcMessage::Command(value),
+            'H' => IpcMessage::Hotkey(value),
+            'R' => IpcMessage::ConfigReloaded,
+            'N' => IpcMessage::Notify(value),
+            '?' => IpcMessage::Error(value),
+            _ => return Err(IpcMessageParseError::UnknownPrefix(start)),
+        };
+        Ok(msg)
+    }
+}
+
+impl Display for IpcMessage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            IpcMessage::Notify(n) => write!(f, "N{}", n),
+            IpcMessage::ConfigReloaded => write!(f, "RReload"),
+            IpcMessage::BeginChain => write!(f, "BBegin chain"),
+            IpcMessage::EndChain => write!(f, "EEnd chain"),
+            IpcMessage::Timeout => write!(f, "TTimeout reached"),
+            IpcMessage::Hotkey(hk) => write!(f, "H{}", hk),
+            IpcMessage::Command(c) => write!(f, "C{}", c),
+            IpcMessage::Error(e) => write!(f, "?{}", e),
+        }
+    }
+}
+
+// TODO: Make grab helper grab all combinations of locks ?
 fn get_lockfields() -> u32 {
     let num_lock = keyboard::modfield_from_keysym("Num_Lock");
     let scroll_lock = keyboard::modfield_from_keysym("Scroll_Lock");
@@ -63,7 +107,9 @@ pub fn start(settings: CliArguments) -> Result<()> {
     let keyboard_fd = keyboard::kbd().connection().as_raw_fd();
     let ipc_server = ipc::DroppableListener::force()?;
     let socket = &ipc_server.listener;
-    socket.set_nonblocking(true)?;
+    socket
+        .set_nonblocking(true)
+        .expect("Failed to create non-blocking socket");
     let socket_fd = socket.as_raw_fd();
 
     use signal_hook::consts::signal::*;
@@ -78,7 +124,6 @@ pub fn start(settings: CliArguments) -> Result<()> {
     signal_hook::flag::register(SIGINT, Arc::clone(&terminate))?;
     signal_hook::flag::register(SIGTERM, Arc::clone(&terminate))?;
     let kbd = keyboard::kbd();
-    let mut sock_buf = String::new();
     loop {
         let mut fd_list = FdSet::new();
         fd_list.insert(keyboard_fd);
@@ -96,14 +141,30 @@ pub fn start(settings: CliArguments) -> Result<()> {
                             }
                         }
                     } else if fd == socket_fd {
-                        use std::io::Read;
                         while let Ok((mut client, _)) = socket.accept() {
-                            sock_buf.clear();
-                            let mut read_buf = [0; 100];
-                            if let Ok(count) = client.read(&mut read_buf) {
-                                let str = String::from_utf8_lossy(&read_buf[0..count]);
-                                // TODO: Implement IPC
-                                println!("Client said: {}", str);
+                            let timeout = Duration::from_millis(1);
+                            let e = client
+                                .set_read_timeout(Some(timeout))
+                                .and(client.set_write_timeout(Some(timeout)));
+                            if let Err(e) = e {
+                                eprintln!("Dropping client: failed to set timeout: {}", e);
+                                continue;
+                            }
+                            let r: &mut dyn Read = &mut client;
+                            let parse = IpcCommand::try_from(r);
+                            match parse {
+                                Ok(c) => match c {
+                                    IpcCommand::Bind(binding) => {
+                                        hotkey_handler.add_bindings(client, binding);
+                                    }
+                                    IpcCommand::Unbind(unbind) => {
+                                        hotkey_handler.delete_bindings(client, unbind);
+                                    }
+                                    IpcCommand::Subscribe(subscribe) => {
+                                        hotkey_handler.add_subscriber(client, subscribe.events)
+                                    }
+                                },
+                                Err(e) => eprintln!("Failed to parse command: {}", e),
                             }
                         }
                     }
@@ -125,10 +186,8 @@ pub fn start(settings: CliArguments) -> Result<()> {
                     hotkey_handler.toggle_grab()?;
                 }
             }
-            // I'm not sure if this can happen?
-            _ => {
-                println!("'select' passsed with no reayd fds and no errors?");
-            }
+            // TODO: I'm not sure if this can happen?
+            _ => {}
         }
     }
 }

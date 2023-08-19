@@ -113,7 +113,7 @@ impl ModMask {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct Chord {
     pub repr: String,
     pub keysym: u32,
@@ -122,6 +122,24 @@ pub struct Chord {
     pub event_type: KeyMode,
     pub replay_event: ReplayMode,
     pub lock_chain: ChainMode,
+}
+
+impl Chord {
+    pub fn eq_relaxed(&self, other: &Self) -> bool {
+        self.button == other.button
+            && self.event_type == other.event_type
+            && self.keysym == other.keysym
+            && self.modfield.bits() == other.modfield.bits()
+    }
+}
+
+impl PartialEq for Chord {
+    /// Manual implementation because we need to ignore repr
+    fn eq(&self, other: &Self) -> bool {
+        self.eq_relaxed(other)
+            && self.replay_event == other.replay_event
+            && self.lock_chain == other.lock_chain
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -146,14 +164,16 @@ impl Hotkey {
 impl Display for Hotkey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if let Some(ref title) = self.title {
-            f.write_str(&format!("# {}\n", title))?;
+            writeln!(f, "# {}", title)?;
         }
         if let Some(ref description) = self.description {
-            f.write_str(&format!("# {}\n", description))?;
+            writeln!(f, "# {}", description)?;
         }
-        for item in &self.chain {
-            f.write_str(&item.repr)?;
-            f.write_str(" ")?;
+        if let Some((last, rest)) = self.chain.split_last() {
+            for item in rest {
+                write!(f, "{} {} ", item, if item.is_locking() { ":" } else { ";" })?;
+            }
+            write!(f, "{}", last);
         }
         f.write_str("\n  ")?;
         f.write_str(&self.command)

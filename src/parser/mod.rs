@@ -16,6 +16,8 @@ pub use types::*;
 pub use scanner::Scanner;
 pub use token_parser::Parser;
 
+use self::hotkey_parser::ChordParseError;
+
 #[derive(Debug, Clone)]
 pub enum RangeError {
     StartGreaterThanEnd,
@@ -184,8 +186,13 @@ impl Display for ConfigParseError {
 
 pub fn parse_chord_chain(chords: &str) -> anyhow::Result<Vec<Chord>> {
     let bytes = chords.as_bytes();
-    let tokens = scanner::Scanner::scan(bytes).unwrap();
-    hotkey_parser::chord_from_tokens(&tokens, bytes)
+    match scanner::Scanner::scan(bytes) {
+        Ok(tokens) => hotkey_parser::chord_from_tokens(&tokens, bytes),
+        Err(e) => match e.downcast_ref::<ConfigParseError>() {
+            None => Err(e),
+            Some(c) => Err(ChordParseError::Contextual(c.contextualize(bytes)))?,
+        },
+    }
 }
 
 impl std::error::Error for ConfigParseError {}
@@ -583,7 +590,10 @@ super + t : t
         print_errors(errors, rule);
         assert_eq!(0, errors.len());
         assert_eq!(1, hotkeys.len());
-        assert_eq!(hotkeys[0].command, "bsp-layout set tiled ; bspc node -t tiled");
+        assert_eq!(
+            hotkeys[0].command,
+            "bsp-layout set tiled ; bspc node -t tiled"
+        );
         assert_eq!(hotkeys[0].title, None);
         assert_eq!(hotkeys[0].description, Some("tiled".into()));
         Ok(())

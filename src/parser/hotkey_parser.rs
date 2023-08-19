@@ -1,4 +1,5 @@
 use crate::{keyboard, parser::permutator::Permute};
+use thiserror::Error;
 pub use xcb::x::ModMask;
 
 use super::*;
@@ -548,9 +549,7 @@ impl HotkeyParser {
                 command_string.remove(0);
             }
 
-            let command_string = command_string
-                .trim()
-                .to_string();
+            let command_string = command_string.trim().to_string();
 
             let chain = match self.make_chain(shortcut) {
                 Ok(chain) => chain,
@@ -609,10 +608,31 @@ impl HotkeyParser {
     }
 }
 
+#[derive(Error, Debug)]
+pub enum ChordParseError {
+    #[error("{0}")]
+    Contextual(String),
+}
+
 pub fn chord_from_tokens(tokens: &[Token], context: &[u8]) -> Result<Vec<Chord>> {
     let mut parser = HotkeyParser::default();
     let groups = HotkeyParser::group(tokens, context);
-    parser.make_chain(&groups)
+    match parser.make_chain(&groups) {
+        Ok(e) => Ok(e),
+        Err(err) => match err.downcast_ref::<ConfigParseError>() {
+            Some(e) => {
+                if let Some(t) = e.get_token() {
+                    let s = t.get_string(context);
+                    return Err(ChordParseError::Contextual(format!(
+                        "{} - in text '{}'",
+                        err, s
+                    )))?;
+                }
+                Err(err)
+            }
+            None => Err(err),
+        },
+    }
 }
 
 #[derive(Debug)]

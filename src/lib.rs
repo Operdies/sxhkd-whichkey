@@ -3,32 +3,8 @@ extern crate lazy_static;
 
 pub mod keyboard;
 pub mod parser;
-pub mod rhkd;
 pub mod rhkc;
-
-// -h
-//     Print the synopsis to standard output and exit.
-//
-// -v
-//     Print the version information to standard output and exit.
-//
-// -m COUNT
-//     Handle the first COUNT mapping notify events.
-//
-// -t TIMEOUT
-//     Timeout in seconds for the recording of chord chains.
-//
-// -c CONFIG_FILE
-//     Read the main configuration from the given file.
-//
-// -r REDIR_FILE
-//     Redirect the commands output to the given file.
-//
-// -s STATUS_FIFO
-//     Output status information to the given FIFO.
-//
-// -a ABORT_KEYSYM
-//     Name of the keysym used for aborting chord chains.
+pub mod rhkd;
 
 use clap::Parser;
 
