@@ -277,16 +277,7 @@ impl HotkeyHandler {
             }
         }
 
-        // update grab set
-        let _ = self.ungrab_all();
-        // If the chain isn't locked, we should keep index 0 grabbed
-        if !self.chain_locked() {
-            Self::grab_index(self.config.get_hotkeys(), 0);
-        }
-        if !self.chain.is_empty() {
-            self.grab_abort();
-            Self::grab_index(&matching, self.chain.len());
-        }
+        self.update_grabset();
 
         if !self.chain.is_empty() && !chained {
             self.publish(&IpcMessage::BeginChain);
@@ -426,7 +417,8 @@ impl HotkeyHandler {
         true
     }
 
-    fn regrab(&mut self) {
+    /// This updates the grab set to exactly the set of currently valid keys
+    fn update_grabset(&mut self) {
         let _ = self.ungrab_all();
         if !self.chain_locked() {
             Self::grab_index(self.config.get_hotkeys(), 0);
@@ -456,7 +448,7 @@ impl HotkeyHandler {
                 let _ = client.write_all(msg.as_bytes());
                 self.publish(&IpcMessage::Notify(msg));
                 if prev_keys != new_keys {
-                    self.regrab();
+                    self.update_grabset();
                 }
             }
             Err(e) => {
@@ -533,7 +525,7 @@ impl HotkeyHandler {
                     added += 1;
                 }
                 if removed > 0 || added > 0 {
-                    self.regrab();
+                    self.update_grabset();
                 }
                 let msg = format!("Added {} and removed {} hotkeys", added, removed);
                 let _ = write!(client, "\n# {}", msg);
