@@ -229,14 +229,23 @@ fn build_ui(application: &gtk::Application) {
 
         loop {
             if let Some(ref fifo) = fifo {
-                let f = std::fs::File::open(fifo).expect("Failed to open fifo");
+                let f = std::fs::File::open(fifo);
+                let Ok(f) =  f else {
+                    eprintln!("Failed to connect to fifo {}: {}", fifo, f.unwrap_err());
+                    std::thread::sleep(std::time::Duration::from_secs(1));
+                    continue;
+                };
                 let reader = BufReader::new(f);
                 println!("Fifo connected!");
                 read_lines(reader, config.get_hotkeys(), sender.clone());
             } else {
                 use ipc::SubscribeEventMask;
-                let mut socket =
-                    UnixStream::connect(get_socket_path()).expect("Failed to connect to socket");
+                let socket = UnixStream::connect(get_socket_path());
+                let Ok(mut socket) = socket else {
+                    eprintln!("Socket error: {}", socket.unwrap_err());
+                    std::thread::sleep(std::time::Duration::from_secs(1));
+                    continue;
+                };
                 let cmd: Vec<u8> = IpcCommand::Subscribe(SubscribeCommand {
                     events: vec![
                         SubscribeEventMask::Command,
@@ -245,9 +254,11 @@ fn build_ui(application: &gtk::Application) {
                     ],
                 })
                 .into();
-                socket
-                    .write_all(&cmd)
-                    .expect("Failed to communicate with socket");
+                if let Err(e) = socket.write_all(&cmd) {
+                    eprintln!("Failed to write to socket: {}", e);
+                    std::thread::sleep(std::time::Duration::from_secs(1));
+                    continue;
+                }
                 let reader = BufReader::new(socket);
                 println!("Socket connected!");
                 read_lines(reader, config.get_hotkeys(), sender.clone());
