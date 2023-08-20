@@ -60,6 +60,7 @@ fn subscribe(sub: Subscription) {
                 std::thread::sleep(Duration::from_secs(1));
                 if let Some(a) = alive() {
                     conn = a;
+                    conn.write_all(&bytes).expect("Failed to send message");
                     println!("Reconnected!");
                 } else {
                     println!("Failed to reconnect..");

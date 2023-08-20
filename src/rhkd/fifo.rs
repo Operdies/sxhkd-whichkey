@@ -1,6 +1,6 @@
 use crate::rhkd::IpcMessage;
 use anyhow::Result;
-use std::os::unix::prelude::OpenOptionsExt;
+use std::{cell::RefCell, os::unix::prelude::OpenOptionsExt};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -16,7 +16,7 @@ pub enum FifoError {
 }
 
 pub struct Fifo {
-    fifo: std::fs::File,
+    fifo: RefCell<std::fs::File>,
 }
 impl Fifo {
     fn open_fifo(path: &str) -> std::io::Result<std::fs::File> {
@@ -49,10 +49,12 @@ impl Fifo {
             }
         };
 
-        Ok(Fifo { fifo })
+        Ok(Fifo {
+            fifo: RefCell::new(fifo),
+        })
     }
 
-    pub fn write_message(&mut self, message: &IpcMessage) -> Result<()> {
+    pub fn write_message(&self, message: &IpcMessage) -> Result<()> {
         use std::io::prelude::Write;
         let message: Option<String> = match message {
             IpcMessage::BeginChain => "BBegin chain".to_string().into(),
@@ -65,7 +67,7 @@ impl Fifo {
             _ => None,
         };
         if let Some(m) = message {
-            writeln!(self.fifo, "{}", m)?;
+            writeln!(self.fifo.borrow_mut(), "{}", m)?;
         }
         Ok(())
     }

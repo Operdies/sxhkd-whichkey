@@ -159,6 +159,20 @@ impl Hotkey {
             .clone()
             .unwrap_or_else(|| self.command.trim_matches(matches).into())
     }
+    pub fn chain_repr(&self) -> String {
+        let mut s = String::new();
+        if let Some((last, rest)) = self.chain.split_last() {
+            for item in rest {
+                s.push_str(&format!(
+                    "{} {} ",
+                    item,
+                    if item.is_locking() { ":" } else { ";" }
+                ));
+            }
+            s.push_str(&format!("{}", last));
+        }
+        s
+    }
 }
 
 impl Display for Hotkey {
@@ -169,13 +183,6 @@ impl Display for Hotkey {
         if let Some(ref description) = self.description {
             writeln!(f, "# {}", description)?;
         }
-        if let Some((last, rest)) = self.chain.split_last() {
-            for item in rest {
-                write!(f, "{} {} ", item, if item.is_locking() { ":" } else { ";" })?;
-            }
-            write!(f, "{}", last);
-        }
-        f.write_str("\n  ")?;
-        f.write_str(&self.command)
+        write!(f, "{}\n  {}", self.chain_repr(), self.command)
     }
 }

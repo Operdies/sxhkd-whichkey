@@ -16,7 +16,6 @@ use gtk::{
     ApplicationWindow,
 };
 use rhkd::rhkc::ipc::{self, get_socket_path, IpcCommand, SubscribeCommand};
-use rhkd::rhkd::hotkey_handler::HotkeyHandler;
 
 fn group_by<T, P, T2>(input: Vec<T>, selector: P) -> Vec<Vec<T>>
 where
@@ -176,14 +175,12 @@ fn build_ui(application: &gtk::Application) {
         let config_path = args.config_path.as_deref();
         let config = load_config(config_path).expect("Failed to load config.");
         let fifo = args.status_fifo.clone();
-        let handler = rhkd::rhkd::hotkey_handler::HotkeyHandler::new(args.clone(), config);
 
         fn read_lines<R: Read>(
             reader: BufReader<R>,
-            handler: &HotkeyHandler,
+            hotkeys: &[Hotkey],
             sender: glib::Sender<Event>,
         ) {
-            let hotkeys = handler.clone_hotkeys();
             for mut line in reader.lines().flatten() {
                 let prefix = line.remove(0);
                 let stroke = match prefix {
@@ -204,12 +201,12 @@ fn build_ui(application: &gtk::Application) {
                     Stroke::EndChain(_) => sender.send(Event::ChainEnded),
                     Stroke::Hotkey(ref h) => match parser::parse_chord_chain(h) {
                         Ok(chords) => {
-                            let hotkeys = HotkeyHandler::find_hotkeys_for_chords(&hotkeys, &chords);
+                            let hotkeys = find_hotkeys_for_chords(hotkeys, &chords);
                             if hotkeys.is_empty() {
                                 continue;
                             }
                             let event = Event::KeyEvent(KeyEvent {
-                                config: hotkeys,
+                                config: hotkeys.into_iter().cloned().collect(),
                                 keys: chords.clone(),
                                 current_index: chords.len(),
                             });
@@ -235,7 +232,7 @@ fn build_ui(application: &gtk::Application) {
                 let f = std::fs::File::open(fifo).expect("Failed to open fifo");
                 let reader = BufReader::new(f);
                 println!("Fifo connected!");
-                read_lines(reader, &handler, sender.clone());
+                read_lines(reader, config.get_hotkeys(), sender.clone());
             } else {
                 use ipc::SubscribeEventMask;
                 let mut socket =
@@ -253,7 +250,7 @@ fn build_ui(application: &gtk::Application) {
                     .expect("Failed to communicate with socket");
                 let reader = BufReader::new(socket);
                 println!("Socket connected!");
-                read_lines(reader, &handler, sender.clone());
+                read_lines(reader, config.get_hotkeys(), sender.clone());
             };
             std::thread::sleep(std::time::Duration::from_secs(1));
         }
@@ -301,6 +298,16 @@ fn main() -> glib::ExitCode {
     });
     let empty: Vec<&str> = vec![];
     application.run_with_args(&empty)
+}
+
+fn find_hotkeys_for_chords<'a>(source: &'a [Hotkey], chain: &[Chord]) -> Vec<&'a Hotkey> {
+    source
+        .iter()
+        .filter(|hk| {
+            hk.chain.len() > chain.len()
+                && chain.iter().zip(&hk.chain).all(|(a, b)| a.repr == b.repr)
+        })
+        .collect()
 }
 
 #[derive(Debug, Clone)]

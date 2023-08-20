@@ -744,6 +744,7 @@ dependencies = [
  "gtk",
  "lazy_static",
  "nix",
+ "once_cell",
  "regex",
  "signal-hook",
  "thiserror",
