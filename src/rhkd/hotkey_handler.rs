@@ -367,26 +367,19 @@ impl HotkeyHandler {
             });
     }
 
-    fn grab_chain(chain: &Chord) {
-        let kbd = keyboard::kbd();
-        if let Some(keycodes) = kbd.get_keycodes(chain.keysym) {
-            for keycode in keycodes {
-                if let Err(e) = kbd.grab(keycode, chain.modfield.into()) {
-                    let e = format!("Error grabbing '{}': {}", chain.repr, e);
-                    eprintln!("{}", e);
-                }
-            }
-        }
-    }
-
     fn report_error(&self, error: String) {
         eprintln!("{}", error);
         self.publish(&IpcMessage::Error(error));
     }
 
-    // Grab index, except it sends all requests to the X server and then checks them afterwards
-    fn grab_index_bulk(hotkeys: &[Hotkey], index: usize) {
+    fn grab_index(hotkeys: &[Hotkey], index: usize) {
         let kbd = keyboard::kbd();
+        let mut chain_lookup = vec![];
+
+        // Generate a vector of everything we want to grab so it can be used in a batching
+        // operation. I measured this to be ~15 times faster than doing every request sequentially
+        // TODO: Update cycle implementation in hotkey struct to avoid attempting to grab each
+        // cycle
         let grab_set: Vec<_> = hotkeys
             .iter()
             .flat_map(|a| {
@@ -397,28 +390,34 @@ impl HotkeyHandler {
                     .unwrap_or(vec![])
                     .iter()
                     .copied()
-                    .map(|k| (k, chain.modfield.into()))
+                    .map(|k| {
+                        chain_lookup.push(chain);
+                        (k, xcb::x::ModMask::from(chain.modfield))
+                    })
                     .collect::<Vec<_>>()
             })
             .collect();
-        // TODO: Proper error handling here?
         kbd.grab_many(&grab_set)
             .into_iter()
-            .filter_map(|e| e.err())
-            .for_each(|e| {
-                eprintln!("Error in bulk grab:: {}", e);
-            })
-    }
-
-    fn grab_index(hotkeys: &[Hotkey], index: usize) {
-        hotkeys
-            .iter()
-            .filter_map(|a| a.chain.get(index))
-            .for_each(Self::grab_chain);
+            .enumerate()
+            .filter_map(|(i, e)| Some((i, e.err()?)))
+            .for_each(|(i, e)| match e {
+                xcb::ProtocolError::X(ref a, _) => match a {
+                    xcb::x::Error::Access(_) => {
+                        eprintln!(
+                            "'{}' could not be grabbed. Is it grabbed by another program?",
+                            chain_lookup[i].repr
+                        );
+                    }
+                    _ => {
+                        eprintln!("Unhandled error during grab: {}", e);
+                    }
+                },
+            });
     }
 
     fn grab_index_0(&mut self) -> Result<()> {
-        Self::grab_index_bulk(self.config.get_hotkeys(), 0);
+        Self::grab_index(self.config.get_hotkeys(), 0);
         self.grab = true;
         Ok(())
     }
@@ -462,12 +461,12 @@ impl HotkeyHandler {
     fn update_grabset(&mut self) {
         let _ = self.ungrab_all();
         if !self.chain_locked() {
-            Self::grab_index_bulk(self.config.get_hotkeys(), 0);
+            Self::grab_index(self.config.get_hotkeys(), 0);
         }
         if !self.chain.is_empty() {
             self.grab_abort();
             let matching = self.find_hotkey(&self.chain);
-            Self::grab_index_bulk(&matching, self.chain.len());
+            Self::grab_index(&matching, self.chain.len());
         }
         self.grab = true;
     }
