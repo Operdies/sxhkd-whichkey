@@ -1,6 +1,6 @@
 use std::collections::HashMap;
-use xcb::x;
 pub use xcb::x::ModMask;
+use xcb::{x, ProtocolResult};
 
 mod keysyms;
 use x::Allow::*;
@@ -158,6 +158,25 @@ impl Keyboard {
             })
     }
 
+    pub fn grab_many(&self, keys: &[(u8, xcb::x::ModMask)]) -> Vec<ProtocolResult<()>> {
+        keys.iter()
+            .copied()
+            .map(|(key, modifiers)| {
+                self.conn.send_request_checked(&xcb::x::GrabKey {
+                    owner_events: true,
+                    grab_window: self.root,
+                    key,
+                    modifiers,
+                    pointer_mode: xcb::x::GrabMode::Async,
+                    keyboard_mode: xcb::x::GrabMode::Sync,
+                })
+            })
+            .collect::<Vec<_>>()
+            .into_iter()
+            .map(|c| self.conn.check_request(c))
+            .collect()
+    }
+
     pub fn grab(&self, key: u8, modifiers: xcb::x::ModMask) -> Result<()> {
         let request = xcb::x::GrabKey {
             owner_events: true,
@@ -294,4 +313,3 @@ pub fn modfield_from_mods(modifiers: &[&str]) -> anyhow::Result<ModMask> {
 pub fn modfield_from_keysym(keysym: &str) -> u32 {
     KEYBOARD.modfield_from_keysym(keysym)
 }
-
