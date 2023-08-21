@@ -166,9 +166,9 @@ impl HotkeyHandler {
         result.into_iter().collect()
     }
 
-    fn align_locks(&mut self, hotkey: &Hotkey) {
+    fn align_locks(&mut self, hotkeys: &[Hotkey]) {
         for (i, item) in self.chain.iter_mut().enumerate() {
-            item.locking = hotkey.chain[i].is_locking();
+            item.locking = hotkeys.iter().any(|hk| hk.chain[i].is_locking());
         }
     }
 
@@ -242,7 +242,7 @@ impl HotkeyHandler {
         self.publish_hotkey(&matching[0])?;
 
         // Update the current chain to match the lock of whatever is currently matching.
-        self.align_locks(&matching[0]);
+        self.align_locks(&matching);
 
         // We should replay this key if any matched chains has requested it
         let replay = matching
