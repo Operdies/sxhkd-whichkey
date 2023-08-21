@@ -494,17 +494,14 @@ impl HotkeyHandler {
         match self.config.add_bindings(&bind) {
             Ok(result) => {
                 if !result.added.is_empty() || !result.removed.is_empty() {
+                    self.publish(&IpcMessage::BindingAdded(bind.clone()));
                     self.update_grabset();
                 }
                 for added in result.added.into_iter() {
                     let _ = writeln!(client, "# ADD\n{}", &added);
-                    self.publish(&IpcMessage::BindingAdded(bind.clone()));
                 }
                 for removed in result.removed.into_iter() {
                     let _ = writeln!(client, "# REMOVE\n{}", &removed);
-                    self.publish(&IpcMessage::BindingRemoved(UnbindCommand {
-                        hotkey: removed.chain_repr(),
-                    }));
                 }
                 for error in result.errors {
                     match error {
