@@ -1,6 +1,8 @@
 use std::hash::Hash;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 
 use rhkd::parser::config::load_config;
 use rhkd::parser::{self, Chord, Hotkey};
@@ -171,17 +173,55 @@ fn build_ui(application: &gtk::Application) {
 
     let (sender, receiver) = MainContext::channel(glib::Priority::default());
     let _ = std::thread::spawn(move || {
+        let reload_config: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
+        if let Err(e) = signal_hook::flag::register(nix::libc::SIGUSR1, Arc::clone(&reload_config))
+        {
+            eprintln!("Failed to register SIGUSR1: {}", e);
+            eprintln!("Continuing in spite of error.");
+        }
         let args = CliArguments::default();
         let config_path = args.config_path.as_deref();
-        let config = load_config(config_path).expect("Failed to load config.");
+        let mut config = load_config(config_path).expect("Failed to load config.");
         let fifo = args.status_fifo.clone();
+
+        fn do_reload(config: &mut parser::config::Config) {
+            match config.reload() {
+                Ok(c) => *config = c,
+                Err(e) => eprintln!("Error reloading config: {}", e),
+            }
+        }
 
         fn read_lines<R: Read>(
             reader: BufReader<R>,
-            hotkeys: &[Hotkey],
+            config: &mut parser::config::Config,
             sender: glib::Sender<Event>,
+            reload: Arc<AtomicBool>,
         ) {
             for mut line in reader.lines().flatten() {
+                if reload.swap(false, std::sync::atomic::Ordering::Relaxed) {
+                    do_reload(config);
+                }
+
+                match line.as_bytes()[0..2] {
+                    [b'B', 0] | [b'U', 0] => {
+                        if let Ok(command) = IpcCommand::try_from(line.as_bytes()) {
+                            match command {
+                                IpcCommand::Bind(b) => {
+                                    let _ = config.add_bindings(&b);
+                                }
+                                IpcCommand::Unbind(b) => {
+                                    let _ = config.delete_bindings(&b);
+                                }
+                                _ => {}
+                            }
+                        }
+                        // If this line contained a '0' byte in any case, it should not be parsed
+                        // as a regular key stroke. Skip the rest of the line
+                        continue;
+                    }
+                    _ => {}
+                }
+
                 let prefix = line.remove(0);
                 let stroke = match prefix {
                     'B' => Stroke::BeginChain(line),
@@ -197,11 +237,16 @@ fn build_ui(application: &gtk::Application) {
                 };
 
                 let err = match stroke {
+                    Stroke::Reload => {
+                        do_reload(config);
+                        reload.swap(false, std::sync::atomic::Ordering::Relaxed);
+                        continue;
+                    }
                     Stroke::BeginChain(_) => sender.send(Event::ChainStarted),
                     Stroke::EndChain(_) => sender.send(Event::ChainEnded),
                     Stroke::Hotkey(ref h) => match parser::parse_chord_chain(h) {
                         Ok(chords) => {
-                            let hotkeys = find_hotkeys_for_chords(hotkeys, &chords);
+                            let hotkeys = find_hotkeys_for_chords(config.get_hotkeys(), &chords);
                             if hotkeys.is_empty() {
                                 continue;
                             }
@@ -237,7 +282,7 @@ fn build_ui(application: &gtk::Application) {
                 };
                 let reader = BufReader::new(f);
                 println!("Fifo connected!");
-                read_lines(reader, config.get_hotkeys(), sender.clone());
+                read_lines(reader, &mut config, sender.clone(), reload_config.clone());
             } else {
                 use ipc::SubscribeEventMask;
                 let socket = UnixStream::connect(get_socket_path());
@@ -251,6 +296,8 @@ fn build_ui(application: &gtk::Application) {
                         SubscribeEventMask::Command,
                         SubscribeEventMask::Hotkey,
                         SubscribeEventMask::Chain,
+                        SubscribeEventMask::Reload,
+                        SubscribeEventMask::Change,
                     ],
                 })
                 .into();
@@ -261,7 +308,7 @@ fn build_ui(application: &gtk::Application) {
                 }
                 let reader = BufReader::new(socket);
                 println!("Socket connected!");
-                read_lines(reader, config.get_hotkeys(), sender.clone());
+                read_lines(reader, &mut config, sender.clone(), reload_config.clone());
             };
             std::thread::sleep(std::time::Duration::from_secs(1));
         }

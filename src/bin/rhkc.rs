@@ -1,11 +1,12 @@
-use clap::{Args, Parser, Subcommand};
+use clap::Parser;
 
 use std::io::{Read, Write};
 use std::os::unix::net::UnixStream;
 use std::time::Duration;
 
 use rhkd::rhkc::ipc::{
-    self, BindCommand, IpcCommand, SubscribeCommand, SubscribeEventMask, UnbindCommand,
+    self, BindCommand, Commands, IpcCommand, SubscribeCommand, SubscribeEventMask, Subscription,
+    UnbindCommand,
 };
 
 #[derive(Parser, Debug)]
@@ -17,24 +18,6 @@ struct Cli {
     /// Don't log rhkd response to stdout. This has no effect for 'subscribe'
     #[arg(short = 'q', long = "quiet", default_value_t = false)]
     quiet: bool,
-}
-
-#[derive(Subcommand, Debug)]
-enum Commands {
-    /// Subscribe to a specified list of events
-    Subscribe(Subscription),
-    /// Add a new binding
-    Bind(BindCommand),
-    /// Remove all bindings in a given group
-    Unbind(UnbindCommand),
-}
-
-#[derive(Args, Debug)]
-struct Subscription {
-    events: Vec<SubscribeEventMask>,
-    /// Automatically reconnect if connection is lost
-    #[arg(short = 'r', long = "with-reconnect", default_value_t = false)]
-    with_reconnect: bool,
 }
 
 fn subscribe(sub: Subscription) -> Result<(), std::io::Error> {
@@ -90,7 +73,11 @@ fn connect() -> Result<UnixStream, std::io::Error> {
         if let Ok(stream) = UnixStream::connect(ipc::get_socket_path()) {
             return Ok(stream);
         }
-        eprint!("\rFailed to connect to server. ({}/{})", i + 1, wait_ms.len());
+        eprint!(
+            "\rFailed to connect to server. ({}/{})",
+            i + 1,
+            wait_ms.len()
+        );
         std::thread::sleep(Duration::from_millis(*ms));
     }
     eprintln!();

@@ -2,7 +2,7 @@ use std::io::Read;
 use std::ops::BitAnd;
 use std::{os::unix::net::UnixListener, path::PathBuf};
 
-use clap::{arg, Args, ValueEnum};
+use clap::{arg, Args, Subcommand, ValueEnum};
 use thiserror::Error;
 
 pub fn get_socket_path() -> String {
@@ -10,6 +10,24 @@ pub fn get_socket_path() -> String {
         "/tmp/rhkd_socket_{}",
         std::env::var("DISPLAY").unwrap_or("_".to_string())
     ))
+}
+
+#[derive(Subcommand, Debug)]
+pub enum Commands {
+    /// Subscribe to a specified list of events
+    Subscribe(Subscription),
+    /// Add a new binding
+    Bind(BindCommand),
+    /// Remove all bindings in a given group
+    Unbind(UnbindCommand),
+}
+
+#[derive(Args, Debug)]
+pub struct Subscription {
+    pub events: Vec<SubscribeEventMask>,
+    /// Automatically reconnect if connection is lost
+    #[arg(short = 'r', long = "with-reconnect", default_value_t = false)]
+    pub with_reconnect: bool,
 }
 
 pub struct DroppableListener {
@@ -34,11 +52,11 @@ impl Drop for DroppableListener {
     }
 }
 
-#[derive(Args, Debug)]
+#[derive(Args, Debug, Clone)]
 pub struct UnbindCommand {
     pub hotkey: String,
 }
-#[derive(Args, Debug)]
+#[derive(Args, Debug, Clone)]
 pub struct BindCommand {
     /// Whether or not to overwrite existing bindings
     #[arg(short, long, default_value_t = false)]
@@ -66,7 +84,8 @@ pub enum SubscribeEventMask {
     Chain = 16,
     Hotkey = 32,
     Command = 64,
-    All = 127,
+    Change = 128,
+    All = 255,
 }
 
 impl BitAnd<u8> for SubscribeEventMask {
@@ -95,6 +114,7 @@ impl SubscribeEventMask {
             Chain,
             Hotkey,
             Command,
+            Change,
         ];
         all.iter().filter(|v| v.has(u)).copied().collect()
     }
@@ -128,21 +148,10 @@ pub enum IpcCommandError {
     BindingError,
 }
 
-impl TryFrom<&mut dyn Read> for IpcCommand {
+impl TryFrom<&[u8]> for IpcCommand {
     type Error = IpcCommandError;
 
-    fn try_from(value: &mut dyn Read) -> Result<Self, Self::Error> {
-        let mut buf = [0; 200];
-        let mut all = vec![];
-
-        loop {
-            match value.read(&mut buf) {
-                Ok(0) => break,
-                Ok(n) => all.extend_from_slice(&buf[0..n]),
-                Err(_) => break,
-            }
-        }
-
+    fn try_from(all: &[u8]) -> Result<Self, Self::Error> {
         let buckets: Vec<Vec<u8>> = all.split(|b| *b == 0).map(|i| i.to_vec()).collect();
         if buckets.is_empty() {
             return Err(IpcCommandError::Empty);
@@ -209,6 +218,24 @@ impl TryFrom<&mut dyn Read> for IpcCommand {
                 String::from_utf8_lossy(first)
             ))),
         }
+    }
+}
+
+impl TryFrom<&mut dyn Read> for IpcCommand {
+    type Error = IpcCommandError;
+
+    fn try_from(value: &mut dyn Read) -> Result<Self, Self::Error> {
+        let mut buf = [0; 200];
+        let mut all = vec![];
+
+        loop {
+            match value.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => all.extend_from_slice(&buf[0..n]),
+                Err(_) => break,
+            }
+        }
+        Self::try_from(&all[..])
     }
 }
 

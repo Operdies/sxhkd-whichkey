@@ -1,5 +1,5 @@
 use crate::parser::{config::Config, Chord};
-use crate::rhkc::ipc::{self, IpcCommand};
+use crate::rhkc::ipc::{self, BindCommand, IpcCommand, UnbindCommand};
 use crate::CliArguments;
 use std::io::Read;
 use std::time::Duration;
@@ -22,7 +22,7 @@ mod fifo;
 pub mod hotkey_handler;
 use hotkey_handler::*;
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum IpcMessage {
     Notify(String),
     ConfigReloaded,
@@ -32,6 +32,8 @@ pub enum IpcMessage {
     Hotkey(String),
     Command(String),
     Error(String),
+    BindingRemoved(UnbindCommand),
+    BindingAdded(BindCommand),
 }
 
 #[derive(Error, Debug)]
@@ -76,6 +78,8 @@ impl Display for IpcMessage {
             IpcMessage::Hotkey(hk) => write!(f, "H{}", hk),
             IpcMessage::Command(c) => write!(f, "C{}", c),
             IpcMessage::Error(e) => write!(f, "?{}", e),
+            IpcMessage::BindingRemoved(r) => write!(f, "D{}", r.hotkey),
+            IpcMessage::BindingAdded(a) => write!(f, "A{}", a.hotkey),
         }
     }
 }

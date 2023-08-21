@@ -1,4 +1,4 @@
-use crate::parser::config::load_config_from_bytes;
+use crate::parser::config::AddBindingError;
 use crate::parser::Hotkey;
 use crate::rhkc::ipc::{BindCommand, SubscribeEventMask, UnbindCommand};
 use std::cell::RefCell;
@@ -78,6 +78,9 @@ impl HotkeyHandler {
                 IpcMessage::Hotkey(_) => mask.contains(&Hotkey),
                 IpcMessage::Command(_) => mask.contains(&Command),
                 IpcMessage::Error(_) => mask.contains(&Errors),
+                IpcMessage::BindingRemoved(_) | IpcMessage::BindingAdded(_) => {
+                    mask.contains(&Change)
+                }
             }
         }
         println!("PUBLISH {:?}", message);
@@ -88,14 +91,21 @@ impl HotkeyHandler {
         }
 
         let msg = once_cell::sync::Lazy::new(|| {
-            let mut msg = message.to_string();
-            msg.push('\n');
-            msg
+            let mut bytes = match message {
+                IpcMessage::BindingRemoved(r) => IpcCommand::Unbind(r.clone()).into(),
+                IpcMessage::BindingAdded(a) => IpcCommand::Bind(a.clone()).into(),
+                _ => {
+                    let msg = message.to_string();
+                    msg.bytes().collect::<Vec<u8>>()
+                }
+            };
+            bytes.push(b'\n');
+            bytes
         });
 
         self.subscribers.borrow_mut().retain_mut(|s| {
             if is_interested(&s.event_mask, message) {
-                if let Err(e) = s.client.write_all(msg.as_bytes()) {
+                if let Err(e) = s.client.write_all(&msg) {
                     println!("Dropping slow subscriber: {}", e);
                     return false;
                 }
@@ -445,18 +455,6 @@ impl HotkeyHandler {
             .push(Client { client, event_mask })
     }
 
-    fn is_prefix_of(short: &[Chord], long: &[Chord]) -> bool {
-        if short.len() > long.len() {
-            return false;
-        }
-        for (s, l) in short.iter().zip(long) {
-            if !s.eq_relaxed(l) {
-                return false;
-            }
-        }
-        true
-    }
-
     /// This updates the grab set to exactly the set of currently valid keys
     fn update_grabset(&mut self) {
         let _ = self.ungrab_all();
@@ -472,38 +470,20 @@ impl HotkeyHandler {
     }
 
     pub fn delete_bindings(&mut self, mut client: UnixStream, unbind: UnbindCommand) {
-        match crate::parser::parse_chord_chain(&unbind.hotkey) {
-            Ok(chords) => {
-                let hk = self.config.get_hotkeys_mut();
-                for i in (0..hk.len()).rev() {
-                    if Self::is_prefix_of(&chords, &hk[i].chain) {
-                        let _ = writeln!(client, "{}", &hk[i]);
-                    }
-                }
-                let keys = self.config.get_hotkeys_mut();
-                let prev_keys = keys.len();
-                keys.retain(|h| !Self::is_prefix_of(&chords, &h.chain));
-                let new_keys = keys.len();
-                let msg = format!("\n# {} / {} keys deleted", prev_keys - new_keys, prev_keys);
-                let _ = client.write_all(msg.as_bytes());
-                self.publish(&IpcMessage::Notify(msg));
-                if prev_keys != new_keys {
+        match self.config.delete_bindings(&unbind) {
+            Ok(removed) => {
+                if !removed.is_empty() {
                     self.update_grabset();
+                }
+                self.publish(&IpcMessage::BindingRemoved(unbind.clone()));
+                for r in removed.into_iter() {
+                    let _ = write!(client, "# REMOVE\n{}", r);
                 }
             }
             Err(e) => {
-                let _ = writeln!(client, "{}", e);
+                let _ = write!(client, "Failed to parse input: {}", e);
             }
         }
-    }
-
-    fn get_first_interfering(new: &Hotkey, set: &[Hotkey]) -> Option<usize> {
-        set.iter().position(|hk| {
-            hk.chain
-                .iter()
-                .zip(&new.chain)
-                .all(|(a, b)| a.eq_relaxed(b))
-        })
     }
 
     pub fn clone_hotkeys(&self) -> Vec<Hotkey> {
@@ -511,65 +491,32 @@ impl HotkeyHandler {
     }
 
     pub fn add_bindings(&mut self, mut client: UnixStream, bind: BindCommand) {
-        let mut binding_text = String::new();
-        if let Some(title) = bind.title {
-            binding_text.push_str(&format!("# {}\n", title));
-        }
-        if let Some(description) = bind.description {
-            binding_text.push_str(&format!("# {}\n", description));
-        }
-        binding_text.push_str(&format!("{}\n", bind.hotkey));
-        binding_text.push_str(&format!("  {}\n", bind.command));
-
-        let new_bindings = load_config_from_bytes(binding_text.as_bytes());
-        match new_bindings {
-            Ok(new) => {
-                let new_hotkeys = new.into_hotkeys();
-
-                let current = self.config.get_hotkeys().len();
-
-                // If overwrite is set, remove all interfering keys
-                if bind.overwrite {
-                    self.config.get_hotkeys_mut().retain(|this| {
-                        let retain = !new_hotkeys.iter().any(|hk| {
-                            this.chain
-                                .iter()
-                                .zip(&hk.chain)
-                                .all(|(a, b)| a.eq_relaxed(b))
-                        });
-                        if !retain {
-                            let _ = writeln!(client, "# REMOVE\n{}", this);
-                        }
-                        retain
-                    });
-                }
-
-                let removed = current - self.config.get_hotkeys().len();
-                let mut added = 0;
-
-                for hk in new_hotkeys.into_iter() {
-                    if !bind.overwrite {
-                        let current = self.config.get_hotkeys();
-                        if let Some(idx) = Self::get_first_interfering(&hk, current) {
-                            let current = &current[idx];
-                            let _ = writeln!(
-                        client,
-                        "New hotkey would interfere with existing hotkey, and will not be added. Use the overwrite option to remove conflicting keys.\n# New:\n{}\nCurrent:\n{}",
-                        hk, current);
-                            self.publish(&IpcMessage::Error(format!("Hotkey not added because it interferes with existing hotkeys: {} <-> {}", hk.chain_repr(), current.chain_repr())));
-                            continue;
-                        }
-                    }
-                    let _ = writeln!(client, "# ADD\n{}", hk);
-                    self.config.get_hotkeys_mut().push(hk);
-                    added += 1;
-                }
-                if removed > 0 || added > 0 {
+        match self.config.add_bindings(&bind) {
+            Ok(result) => {
+                if !result.added.is_empty() || !result.removed.is_empty() {
                     self.update_grabset();
                 }
-                let msg = format!("Added {} and removed {} hotkeys", added, removed);
-                let _ = write!(client, "\n# {}", msg);
-                self.publish(&IpcMessage::Notify(msg));
+                for added in result.added.into_iter() {
+                    let _ = writeln!(client, "# ADD\n{}", &added);
+                    self.publish(&IpcMessage::BindingAdded(bind.clone()));
+                }
+                for removed in result.removed.into_iter() {
+                    let _ = writeln!(client, "# REMOVE\n{}", &removed);
+                    self.publish(&IpcMessage::BindingRemoved(UnbindCommand {
+                        hotkey: removed.chain_repr(),
+                    }));
+                }
+                for error in result.errors {
+                    match error {
+                        AddBindingError::WouldInterfere { current, new } => {
+                            let _ = writeln!(
+                                client,
+                                "Hotkey '{}' not added because it would interfere with '{}'.",
+                                current, new
+                            );
+                        }
+                    }
+                }
             }
             Err(e) => {
                 let _ = writeln!(client, "{}", e);

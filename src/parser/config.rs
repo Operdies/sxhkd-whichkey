@@ -1,4 +1,7 @@
-use crate::parser::*;
+use crate::{
+    parser::*,
+    rhkc::ipc::{BindCommand, UnbindCommand},
+};
 use anyhow::{bail, Context, Result};
 use thiserror::Error;
 
@@ -15,7 +18,101 @@ pub enum CycleError {
     CycleNotFound,
 }
 
+#[derive(Debug, Error)]
+pub enum AddBindingError {
+    #[error("Hotkey not added because it would interfere with an existing hotkey. Current: {current}, new: {new}")]
+    WouldInterfere { current: String, new: String },
+}
+
+pub struct AddBindingsResult {
+    pub added: Vec<Hotkey>,
+    pub removed: Vec<Hotkey>,
+    pub errors: Vec<AddBindingError>,
+}
+
 impl Config {
+    fn get_first_interfering(new: &Hotkey, set: &[Hotkey]) -> Option<usize> {
+        set.iter().position(|hk| {
+            hk.chain
+                .iter()
+                .zip(&new.chain)
+                .all(|(a, b)| a.eq_relaxed(b))
+        })
+    }
+    fn is_prefix_of(short: &[Chord], long: &[Chord]) -> bool {
+        if short.len() > long.len() {
+            return false;
+        }
+        for (s, l) in short.iter().zip(long) {
+            if !s.eq_relaxed(l) {
+                return false;
+            }
+        }
+        true
+    }
+    pub fn delete_bindings(&mut self, unbind: &UnbindCommand) -> anyhow::Result<Vec<Hotkey>> {
+        let chords = crate::parser::parse_chord_chain(&unbind.hotkey)?;
+        let (remove, keep): (Vec<_>, Vec<_>) = self
+            .hotkeys
+            .clone()
+            .into_iter()
+            .partition(|e| Self::is_prefix_of(&chords, &e.chain));
+        self.hotkeys = keep;
+        Ok(remove)
+    }
+
+    pub fn add_bindings(&mut self, bind: &BindCommand) -> anyhow::Result<AddBindingsResult> {
+        let mut result = AddBindingsResult {
+            added: vec![],
+            removed: vec![],
+            errors: vec![],
+        };
+        let mut binding_text = String::new();
+        if let Some(ref title) = bind.title {
+            binding_text.push_str(&format!("# {}\n", title));
+        }
+        if let Some(ref description) = bind.description {
+            binding_text.push_str(&format!("# {}\n", description));
+        }
+        binding_text.push_str(&format!("{}\n", bind.hotkey));
+        binding_text.push_str(&format!("  {}\n", bind.command));
+
+        let new = load_config_from_bytes(binding_text.as_bytes())?;
+        let new_hotkeys = new.hotkeys;
+
+        // If overwrite is set, remove all interfering keys
+        if bind.overwrite {
+            self.hotkeys.retain(|this| {
+                let retain = !new_hotkeys.iter().any(|hk| {
+                    this.chain
+                        .iter()
+                        .zip(&hk.chain)
+                        .all(|(a, b)| a.eq_relaxed(b))
+                });
+                if !retain {
+                    result.removed.push(this.clone());
+                }
+                retain
+            });
+        }
+
+        for hk in new_hotkeys.into_iter() {
+            if !bind.overwrite {
+                let current = &self.hotkeys;
+                if let Some(idx) = Self::get_first_interfering(&hk, current) {
+                    let current = &current[idx];
+                    result.errors.push(AddBindingError::WouldInterfere {
+                        current: current.chain_repr(),
+                        new: hk.chain_repr(),
+                    });
+                    continue;
+                }
+            }
+            result.added.push(hk.clone());
+            self.hotkeys.push(hk);
+        }
+        Ok(result)
+    }
     pub fn get_hotkeys_mut(&mut self) -> &mut Vec<Hotkey> {
         &mut self.hotkeys
     }
