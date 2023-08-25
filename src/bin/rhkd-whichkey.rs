@@ -66,7 +66,7 @@ fn build_grid(event: &KeyEvent) -> gtk::Grid {
                 };
                 title.push_str(&format!(" {} ", join));
             }
-            title
+            title.into()
         });
 
     let current_hotkey = gtk::Label::new(Some(window_title));
@@ -244,24 +244,27 @@ fn build_ui(application: &gtk::Application) {
                     }
                     Stroke::BeginChain(_) => sender.send(Event::ChainStarted),
                     Stroke::EndChain(_) => sender.send(Event::ChainEnded),
-                    Stroke::Hotkey(ref h) => match parser::parse_chord_chain(h) {
-                        Ok(chords) => {
-                            let hotkeys = find_hotkeys_for_chords(config.get_hotkeys(), &chords);
-                            if hotkeys.is_empty() {
+                    Stroke::Hotkey(ref hotkey_string) => {
+                        match parser::parse_chord_chain(hotkey_string) {
+                            Ok(chords) => {
+                                let hotkeys =
+                                    find_hotkeys_for_chords(config.get_hotkeys(), &chords);
+                                if hotkeys.is_empty() {
+                                    continue;
+                                }
+                                let event = Event::KeyEvent(KeyEvent {
+                                    config: hotkeys.into_iter().cloned().collect(),
+                                    keys: chords.clone(),
+                                    current_index: chords.len(),
+                                });
+                                sender.send(event)
+                            }
+                            Err(e) => {
+                                eprintln!("Failed to parse keys from {}: {}", hotkey_string, e);
                                 continue;
                             }
-                            let event = Event::KeyEvent(KeyEvent {
-                                config: hotkeys.into_iter().cloned().collect(),
-                                keys: chords.clone(),
-                                current_index: chords.len(),
-                            });
-                            sender.send(event)
                         }
-                        Err(e) => {
-                            eprintln!("Failed to parse keys from {}: {}", h, e);
-                            continue;
-                        }
-                    },
+                    }
                     _ => {
                         continue;
                     }

@@ -24,14 +24,14 @@ use hotkey_handler::*;
 
 #[derive(Debug)]
 pub enum IpcMessage {
-    Notify(String),
+    Notify(Arc<str>),
     ConfigReloaded,
     BeginChain,
     EndChain,
     Timeout,
-    Hotkey(String),
-    Command(String),
-    Error(String),
+    Hotkey(Arc<str>),
+    Command(Arc<str>),
+    Error(Arc<str>),
     BindingRemoved(UnbindCommand),
     BindingAdded(BindCommand),
 }
@@ -56,11 +56,11 @@ impl TryFrom<String> for IpcMessage {
             'B' => IpcMessage::BeginChain,
             'E' => IpcMessage::EndChain,
             'T' => IpcMessage::Timeout,
-            'C' => IpcMessage::Command(value),
-            'H' => IpcMessage::Hotkey(value),
+            'C' => IpcMessage::Command(value.into()),
+            'H' => IpcMessage::Hotkey(value.into()),
             'R' => IpcMessage::ConfigReloaded,
-            'N' => IpcMessage::Notify(value),
-            '?' => IpcMessage::Error(value),
+            'N' => IpcMessage::Notify(value.into()),
+            '?' => IpcMessage::Error(value.into()),
             _ => return Err(IpcMessageParseError::UnknownPrefix(start)),
         };
         Ok(msg)

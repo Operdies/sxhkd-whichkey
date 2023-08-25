@@ -59,7 +59,9 @@ impl HotkeyHandler {
                 self.grab_index_0()?;
                 self.publish(&IpcMessage::ConfigReloaded);
             }
-            Err(e) => self.publish(&IpcMessage::Error(format!("Config reload failed: {:?}", e))),
+            Err(e) => self.publish(&IpcMessage::Error(
+                format!("Config reload failed: {:?}", e).into(),
+            )),
         }
         Ok(())
     }
@@ -187,7 +189,7 @@ impl HotkeyHandler {
         }
         let last = &chain.chain[self.chain.len() - 1];
         hotkey_string.push_str(&last.repr);
-        self.publish(&IpcMessage::Hotkey(hotkey_string));
+        self.publish(&IpcMessage::Hotkey(hotkey_string.into()));
         Ok(())
     }
 
@@ -379,7 +381,7 @@ impl HotkeyHandler {
 
     fn report_error(&self, error: String) {
         eprintln!("{}", error);
-        self.publish(&IpcMessage::Error(error));
+        self.publish(&IpcMessage::Error(error.into()));
     }
 
     fn grab_index(hotkeys: &[Hotkey], index: usize) {

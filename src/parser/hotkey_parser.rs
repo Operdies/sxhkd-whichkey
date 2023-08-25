@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::{keyboard, parser::permutator::Permute};
 use thiserror::Error;
 pub use xcb::x::ModMask;
@@ -24,7 +26,7 @@ pub struct CommandNode {
 #[derive(Debug, Default)]
 pub struct HotkeyParser {
     commands: Vec<GroupableToken>,
-    title: Option<String>,
+    title: Option<Arc<str>>,
     descriptions: Vec<GroupableToken>,
     shortcuts: Vec<GroupableToken>,
     errors: Vec<anyhow::Error>,
@@ -153,7 +155,11 @@ impl HotkeyParser {
             .cloned()
             .collect::<Vec<GroupableToken>>();
 
-        let mut chord = Chord::default();
+        let mut chord = Chord {
+            repr: String::new().into(),
+            ..Default::default()
+        };
+
         let mut last = tokens.pop().context("No tokens in binding!")?;
 
         // Handle the chain, if present
@@ -235,7 +241,7 @@ impl HotkeyParser {
         let modfield = keyboard::modfield_from_mods(&mod_tokens)?;
         chord.modfield = modfield.bits().into();
         mod_tokens.push(&keysym_repr);
-        chord.repr = mod_tokens.join(" + ");
+        chord.repr = mod_tokens.join(" + ").into();
         Ok(chord)
     }
 
@@ -568,11 +574,11 @@ impl HotkeyParser {
 
             let hotkey = Hotkey {
                 chain,
-                command: command_string,
+                command: command_string.into(),
                 sync,
                 cycle,
                 title: self.title.clone(),
-                description: unit.description.map(|d| Self::string_variant(&d)),
+                description: unit.description.map(|d| Self::string_variant(&d).into()),
             };
 
             self.hotkeys.push(hotkey);
@@ -596,7 +602,7 @@ impl HotkeyParser {
         );
         let instance = Self {
             shortcuts: shortcut_groups,
-            title: title.map(|t| t.get_string(context)),
+            title: title.map(|t| t.get_string(context).into()),
             commands: command_groups,
             descriptions: comment_groups,
             hotkeys: vec![],

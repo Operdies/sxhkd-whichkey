@@ -37,7 +37,7 @@ impl Executor {
 
     pub fn run(&self, hk: &Hotkey) -> Result<()> {
         let mut cmd = std::process::Command::new(self.shell.as_str());
-        let mut cmd = cmd.arg("-c").arg(hk.command.as_str()).stdin(Stdio::null());
+        let mut cmd = cmd.arg("-c").arg(hk.command.to_string()).stdin(Stdio::null());
         if let Some(fd) = self.redir_fd {
             unsafe {
                 cmd = cmd

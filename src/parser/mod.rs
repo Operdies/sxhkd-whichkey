@@ -338,8 +338,8 @@ super + {a,b} ; {1-3}
             assert_eq!(hk.chain[0].repr, *first);
             assert_eq!(hk.chain[1].repr, *second);
         }
-        assert_eq!(&hotkeys[0].command, "echo some 1");
-        assert_eq!(&hotkeys[5].command, "echo  replacement 3");
+        assert_eq!(&hotkeys[0].command.to_string(), "echo some 1");
+        assert_eq!(&hotkeys[5].command.to_string(), "echo  replacement 3");
         assert_eq!(
             hotkeys[3].description,
             Some("Documentation expansion 1".into())
@@ -413,7 +413,7 @@ super + {_,shift +}c
             );
             assert_eq!(1, rule.chain.len());
             assert_eq!("super + c", rule.chain[0].repr);
-            assert_eq!("bspc node -f next.local.!hidden.window", rule.command);
+            assert_eq!("bspc node -f next.local.!hidden.window", rule.command.to_string());
         }
         {
             let rule = &hotkeys[1];
@@ -423,7 +423,7 @@ super + {_,shift +}c
             );
             assert_eq!(1, rule.chain.len());
             assert_eq!("super + shift + c", rule.chain[0].repr);
-            assert_eq!("bspc node -f prev.local.!hidden.window", rule.command);
+            assert_eq!("bspc node -f prev.local.!hidden.window", rule.command.to_string());
         }
         Ok(())
     }
@@ -471,7 +471,7 @@ super + {_,shift +}c
             assert!(hk.chain[0].lock_chain.is_locking());
             assert_eq!(hk.chain[0].repr, "super + Tab");
             assert_eq!(hk.chain[1].repr, "bracketleft");
-            assert_eq!(hk.command, "bspc desktop -f prev.local");
+            assert_eq!(hk.command.to_string(), "bspc desktop -f prev.local");
         }
         {
             let hk = &hotkeys[1];
@@ -479,7 +479,7 @@ super + {_,shift +}c
             assert!(hk.chain[0].lock_chain.is_locking());
             assert_eq!(hk.chain[0].repr, "super + Tab");
             assert_eq!(hk.chain[1].repr, "bracketright");
-            assert_eq!(hk.command, "bspc desktop -f next.local");
+            assert_eq!(hk.command.to_string(), "bspc desktop -f next.local");
         }
 
         Ok(())
@@ -500,13 +500,13 @@ super + {_,shift +}c
             let hk = &hotkeys[0];
             assert_eq!(1, hk.chain.len());
             assert_eq!(hk.chain[0].repr, "shift + x");
-            assert_eq!(hk.command, "echo shift");
+            assert_eq!(hk.command.to_string(), "echo shift");
         }
         {
             let hk = &hotkeys[1];
             assert_eq!(1, hk.chain.len());
             assert_eq!(hk.chain[0].repr, "super + x");
-            assert_eq!(hk.command, "echo super");
+            assert_eq!(hk.command.to_string(), "echo super");
         }
         Ok(())
     }
@@ -538,7 +538,7 @@ super + {_,shift +}c
         let mut delay = 0;
         for (delay, (hk, expected)) in hotkeys.iter().zip(expected_order).enumerate() {
             let expected = format!("echo {} {} {}", expected.0, expected.1, expected.2);
-            assert_eq!(hk.command, expected);
+            assert_eq!(hk.command.to_string(), expected);
             let cycle = hk.cycle.clone().unwrap();
             assert_eq!(cycle.period, expected_count);
             assert_eq!(cycle.delay, delay as i32);
@@ -573,7 +573,7 @@ super + shift + e ; { 1, 2, 3, 4, 5}
         print_errors(errors, rule);
         assert_eq!(0, errors.len());
         assert_eq!(5, hotkeys.len());
-        assert_eq!(hotkeys[1].command, "bspc quit");
+        assert_eq!(hotkeys[1].command.to_string(), "bspc quit");
         Ok(())
     }
     #[test]
@@ -589,7 +589,7 @@ super + t : t
         assert_eq!(0, errors.len());
         assert_eq!(1, hotkeys.len());
         assert_eq!(
-            hotkeys[0].command,
+            hotkeys[0].command.to_string(),
             "bsp-layout set tiled ; bspc node -t tiled"
         );
         assert_eq!(hotkeys[0].title, None);

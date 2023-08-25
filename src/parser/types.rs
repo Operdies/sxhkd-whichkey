@@ -1,6 +1,6 @@
 #![allow(unused)]
 
-use std::fmt::Display;
+use std::{fmt::Display, sync::Arc};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Cycle {
@@ -113,9 +113,9 @@ impl ModMask {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct Chord {
-    pub repr: String,
+    pub repr: Arc<str>,
     pub keysym: u32,
     pub button: u8,
     pub modfield: ModMask,
@@ -133,6 +133,20 @@ impl Chord {
     }
 }
 
+impl Default for Chord {
+    fn default() -> Self {
+        Chord {
+            repr: String::new().into(),
+            keysym: 0,
+            button: 0,
+            modfield: ModMask::default(),
+            event_type: Default::default(),
+            lock_chain: Default::default(),
+            replay_event: Default::default(),
+        }
+    }
+}
+
 impl PartialEq for Chord {
     /// Manual implementation because we need to ignore repr
     fn eq(&self, other: &Self) -> bool {
@@ -142,18 +156,18 @@ impl PartialEq for Chord {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Hotkey {
     pub chain: Vec<Chord>,
-    pub command: String,
+    pub command: Arc<str>,
     pub sync: bool,
     pub cycle: Option<Cycle>,
-    pub title: Option<String>,
-    pub description: Option<String>,
+    pub title: Option<Arc<str>>,
+    pub description: Option<Arc<str>>,
 }
 
 impl Hotkey {
-    pub fn description(&self) -> String {
+    pub fn description(&self) -> Arc<str> {
         let matches: &[_] = &['\\', ' ', '\n'];
         self.description
             .clone()
@@ -165,11 +179,11 @@ impl Hotkey {
             for item in rest {
                 s.push_str(&format!(
                     "{} {} ",
-                    item,
+                    item.repr,
                     if item.is_locking() { ":" } else { ";" }
                 ));
             }
-            s.push_str(&format!("{}", last));
+            s.push_str(&last.repr);
         }
         s
     }
