@@ -35,7 +35,7 @@ impl Config {
         set.iter().position(|hk| {
             hk.chain
                 .iter()
-                .zip(&new.chain)
+                .zip(new.chain.iter())
                 .all(|(a, b)| a.eq_relaxed(b))
         })
     }
@@ -86,7 +86,7 @@ impl Config {
                 let retain = !new_hotkeys.iter().any(|hk| {
                     this.chain
                         .iter()
-                        .zip(&hk.chain)
+                        .zip(hk.chain.iter())
                         .all(|(a, b)| a.eq_relaxed(b))
                 });
                 if !retain {
@@ -167,7 +167,10 @@ pub fn load_config(file: Option<&str>) -> Result<Config> {
         .or_else(|| guess_config_path().ok());
     let Some(path) = path else {
         println!("No config file found. Using empty default config.");
-        return Ok(Config { path: None, hotkeys: vec![] });
+        return Ok(Config {
+            path: None,
+            hotkeys: vec![],
+        });
     };
 
     let content = std::fs::read(&path).context(format!("Failed to read file '{}'", path))?;

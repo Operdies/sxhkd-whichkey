@@ -573,7 +573,7 @@ impl HotkeyParser {
             delay += 1;
 
             let hotkey = Hotkey {
-                chain,
+                chain: chain.into(),
                 command: command_string.into(),
                 sync,
                 cycle,

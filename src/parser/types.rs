@@ -158,7 +158,7 @@ impl PartialEq for Chord {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Hotkey {
-    pub chain: Vec<Chord>,
+    pub chain: Arc<[Chord]>,
     pub command: Arc<str>,
     pub sync: bool,
     pub cycle: Option<Cycle>,

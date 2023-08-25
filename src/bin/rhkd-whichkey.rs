@@ -366,7 +366,7 @@ fn find_hotkeys_for_chords<'a>(source: &'a [Hotkey], chain: &[Chord]) -> Vec<&'a
         .iter()
         .filter(|hk| {
             hk.chain.len() > chain.len()
-                && chain.iter().zip(&hk.chain).all(|(a, b)| a.repr == b.repr)
+                && chain.iter().zip(hk.chain.iter()).all(|(a, b)| a.repr == b.repr)
         })
         .collect()
 }
