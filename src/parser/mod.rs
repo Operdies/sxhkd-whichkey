@@ -335,8 +335,8 @@ super + {a,b} ; {1-3}
         ];
         for (hk, (first, second)) in hotkeys.iter().zip(expected_reprs) {
             assert_eq!(hk.title, Some("This rule rules".into()));
-            assert_eq!(hk.chain[0].repr, *first);
-            assert_eq!(hk.chain[1].repr, *second);
+            assert_eq!(hk.chain[0].repr.to_string(), *first);
+            assert_eq!(hk.chain[1].repr.to_string(), *second);
         }
         assert_eq!(&hotkeys[0].command.to_string(), "echo some 1");
         assert_eq!(&hotkeys[5].command.to_string(), "echo  replacement 3");
@@ -412,7 +412,7 @@ super + {_,shift +}c
                 Some("focus the next window in the current desktop".into())
             );
             assert_eq!(1, rule.chain.len());
-            assert_eq!("super + c", rule.chain[0].repr);
+            assert_eq!("super + c", rule.chain[0].repr.to_string());
             assert_eq!("bspc node -f next.local.!hidden.window", rule.command.to_string());
         }
         {
@@ -422,7 +422,7 @@ super + {_,shift +}c
                 Some("focus the previous window in the current desktop".into())
             );
             assert_eq!(1, rule.chain.len());
-            assert_eq!("super + shift + c", rule.chain[0].repr);
+            assert_eq!("super + shift + c", rule.chain[0].repr.to_string());
             assert_eq!("bspc node -f prev.local.!hidden.window", rule.command.to_string());
         }
         Ok(())
@@ -448,8 +448,8 @@ super + {_,shift +}c
             let exp2 = format!("super + shift + {}", expected_number);
             let hk1 = &hotkeys[i];
             let hk2 = &hotkeys[i + 10];
-            assert_eq!(exp1, hk1.chain[0].repr);
-            assert_eq!(exp2, hk2.chain[0].repr);
+            assert_eq!(exp1, hk1.chain[0].repr.to_string());
+            assert_eq!(exp2, hk2.chain[0].repr.to_string());
         }
         Ok(())
     }
@@ -469,16 +469,16 @@ super + {_,shift +}c
             let hk = &hotkeys[0];
             assert_eq!(2, hk.chain.len());
             assert!(hk.chain[0].lock_chain.is_locking());
-            assert_eq!(hk.chain[0].repr, "super + Tab");
-            assert_eq!(hk.chain[1].repr, "bracketleft");
+            assert_eq!(hk.chain[0].repr.to_string(), "super + Tab");
+            assert_eq!(hk.chain[1].repr.to_string(), "bracketleft");
             assert_eq!(hk.command.to_string(), "bspc desktop -f prev.local");
         }
         {
             let hk = &hotkeys[1];
             assert_eq!(2, hk.chain.len());
             assert!(hk.chain[0].lock_chain.is_locking());
-            assert_eq!(hk.chain[0].repr, "super + Tab");
-            assert_eq!(hk.chain[1].repr, "bracketright");
+            assert_eq!(hk.chain[0].repr.to_string(), "super + Tab");
+            assert_eq!(hk.chain[1].repr.to_string(), "bracketright");
             assert_eq!(hk.command.to_string(), "bspc desktop -f next.local");
         }
 
@@ -499,13 +499,13 @@ super + {_,shift +}c
         {
             let hk = &hotkeys[0];
             assert_eq!(1, hk.chain.len());
-            assert_eq!(hk.chain[0].repr, "shift + x");
+            assert_eq!(hk.chain[0].repr.to_string(), "shift + x");
             assert_eq!(hk.command.to_string(), "echo shift");
         }
         {
             let hk = &hotkeys[1];
             assert_eq!(1, hk.chain.len());
-            assert_eq!(hk.chain[0].repr, "super + x");
+            assert_eq!(hk.chain[0].repr.to_string(), "super + x");
             assert_eq!(hk.command.to_string(), "echo super");
         }
         Ok(())

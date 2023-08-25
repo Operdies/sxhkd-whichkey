@@ -155,11 +155,7 @@ impl HotkeyParser {
             .cloned()
             .collect::<Vec<GroupableToken>>();
 
-        let mut chord = Chord {
-            repr: String::new().into(),
-            ..Default::default()
-        };
-
+        let mut chord = Chord::default();
         let mut last = tokens.pop().context("No tokens in binding!")?;
 
         // Handle the chain, if present
