@@ -19,16 +19,16 @@ use gtk::{
 };
 use rhkd::rhkc::ipc::{self, get_socket_path, IpcCommand, SubscribeCommand};
 
-fn group_by<T, P, T2>(input: Vec<T>, selector: P) -> Vec<Vec<T>>
+fn group_by<T, P, T2>(input: &[T], selector: P) -> Vec<Vec<&T>>
 where
     T2: PartialOrd + Eq + Hash + ?Sized,
     P: Fn(&T) -> &T2,
 {
-    let mut result: Vec<Vec<T>> = vec![];
-    for item in input.into_iter() {
-        let key_1 = selector(&item);
+    let mut result: Vec<Vec<&T>> = vec![];
+    for item in input.iter() {
+        let key_1 = selector(item);
         let pos = result.iter().position(|p| {
-            let key_2 = selector(&p[0]);
+            let key_2 = selector(p[0]);
             std::cmp::Ordering::Equal == key_1.partial_cmp(key_2).unwrap()
         });
         let idx = if let Some(i) = pos {
@@ -72,7 +72,7 @@ fn build_grid(event: &KeyEvent) -> gtk::Grid {
     let current_hotkey = gtk::Label::new(Some(window_title));
     current_hotkey.set_widget_name("path");
 
-    let grouped = group_by(event.config.clone(), |hk: &Hotkey| {
+    let grouped = group_by(&event.config, |hk: &Hotkey| {
         hk.chain[event.current_index].repr.trim()
     });
     let chunks = grouped.chunks(10);
@@ -278,7 +278,7 @@ fn build_ui(application: &gtk::Application) {
         loop {
             if let Some(ref fifo) = fifo {
                 let f = std::fs::File::open(fifo);
-                let Ok(f) =  f else {
+                let Ok(f) = f else {
                     eprintln!("Failed to connect to fifo {}: {}", fifo, f.unwrap_err());
                     std::thread::sleep(std::time::Duration::from_secs(1));
                     continue;
@@ -366,7 +366,10 @@ fn find_hotkeys_for_chords<'a>(source: &'a [Hotkey], chain: &[Chord]) -> Vec<&'a
         .iter()
         .filter(|hk| {
             hk.chain.len() > chain.len()
-                && chain.iter().zip(hk.chain.iter()).all(|(a, b)| a.repr == b.repr)
+                && chain
+                    .iter()
+                    .zip(hk.chain.iter())
+                    .all(|(a, b)| a.repr == b.repr)
         })
         .collect()
 }
