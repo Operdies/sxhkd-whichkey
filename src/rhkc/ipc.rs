@@ -170,7 +170,7 @@ impl TryFrom<&[u8]> for IpcCommand {
                 let description = &buckets[2];
                 let hotkey = &buckets[3];
                 let command = &buckets[4];
-                let overwrite = &buckets[5];
+                let overwrite = buckets.get(5);
                 let title = if !title.is_empty() { Some(title) } else { None };
                 let description = if !description.is_empty() {
                     Some(description)
@@ -186,7 +186,10 @@ impl TryFrom<&[u8]> for IpcCommand {
                     description,
                     hotkey,
                     command,
-                    overwrite: overwrite[0] == b't',
+                    overwrite: overwrite
+                        .and_then(|o| o.first().cloned())
+                        .map(|c| c == b't')
+                        .unwrap_or(false),
                 }))
             }
             [b'U'] => {
