@@ -411,10 +411,11 @@ impl HotkeyParser {
             match token {
                 GroupableToken::Single(_, _) => result.push(token.clone()),
                 GroupableToken::Group(t, _) => {
-                    let this_variant = variant[idx].clone();
-                    idx += 1;
-                    for token in this_variant.into_iter() {
-                        result.push(GroupableToken::Single(t.clone(), token))
+                    if let Some(this_variant) = variant.get(idx).cloned() {
+                        idx += 1;
+                        for token in this_variant.into_iter() {
+                            result.push(GroupableToken::Single(t.clone(), token))
+                        }
                     }
                 }
             }

@@ -1,7 +1,6 @@
 use crate::parser::{config::Config, Chord};
-use crate::rhkc::ipc::{self, BindCommand, IpcCommand, UnbindCommand};
+use crate::rhkc::ipc::{self, BindCommand, IpcCommand, TryFromReader, UnbindCommand};
 use crate::CliArguments;
-use std::io::Read;
 use std::time::Duration;
 
 use super::keyboard;
@@ -149,7 +148,7 @@ pub fn start(settings: CliArguments) -> Result<()> {
                             }
                         }
                     } else if fd == socket_fd {
-                        while let Ok((mut client, _)) = socket.accept() {
+                        while let Ok((client, _)) = socket.accept() {
                             let timeout = Duration::from_millis(1);
                             let e = client
                                 .set_read_timeout(Some(timeout))
@@ -158,8 +157,7 @@ pub fn start(settings: CliArguments) -> Result<()> {
                                 eprintln!("Dropping client: failed to set timeout: {}", e);
                                 continue;
                             }
-                            let r: &mut dyn Read = &mut client;
-                            let parse = IpcCommand::try_from(r);
+                            let parse = TryFromReader::try_from(&client);
                             match parse {
                                 Ok(c) => match c {
                                     IpcCommand::Bind(binding) => {

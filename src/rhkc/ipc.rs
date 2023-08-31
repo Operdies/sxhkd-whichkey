@@ -224,10 +224,18 @@ impl TryFrom<&[u8]> for IpcCommand {
     }
 }
 
-impl TryFrom<&mut dyn Read> for IpcCommand {
+pub trait TryFromReader<T>
+where
+    Self: Sized,
+{
+    type Error;
+    fn try_from(value: T) -> Result<Self, Self::Error>;
+}
+
+impl<R: Read> TryFromReader<R> for IpcCommand {
     type Error = IpcCommandError;
 
-    fn try_from(value: &mut dyn Read) -> Result<Self, Self::Error> {
+    fn try_from(mut value: R) -> Result<Self, Self::Error> {
         let mut buf = [0; 200];
         let mut all = vec![];
 
@@ -238,7 +246,7 @@ impl TryFrom<&mut dyn Read> for IpcCommand {
                 Err(_) => break,
             }
         }
-        Self::try_from(&all[..])
+        (&all[..]).try_into()
     }
 }
 
