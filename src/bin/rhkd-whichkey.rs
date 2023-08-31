@@ -111,13 +111,21 @@ fn build_grid(event: &KeyEvent) -> gtk::Grid {
             } else {
                 // There are multiple continuations in this chain -- show each continuation
                 let continuation = group[0].chain[event.current_index].repr.trim().to_string();
-                let command = group
+
+                let relevant = group
                     .iter()
-                    .map(|g| g.chain.get(event.current_index + 1))
-                    .filter(|x| x.is_some())
-                    .map(|s| s.unwrap().repr.trim())
-                    .collect::<Vec<_>>()
-                    .join(" | ");
+                    .filter(|g| g.chain.get(event.current_index + 1).is_some())
+                    .collect::<Vec<_>>();
+                let command = relevant
+                    .iter()
+                    .find_map(|g| g.title.as_deref().map(|s| s.to_string()))
+                    .unwrap_or_else(|| {
+                        relevant
+                            .iter()
+                            .map(|x| x.chain[event.current_index + 1].repr.trim())
+                            .collect::<Vec<_>>()
+                            .join(" | ")
+                    });
                 let command = command.to_string();
                 let continuation = gtk::Label::new(Some(&continuation));
                 continuation.set_widget_name("path");
