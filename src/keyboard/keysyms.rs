@@ -9,6 +9,7 @@ pub fn symbol_from_string(s: &str) -> Option<u32> {
 
         //#ifdef MISCELLANY
         "BackSpace" => 0xff08, /* Back space, back char */
+        "Backspace" => 0xff08, /* Back space, back char */
         "Tab" => 0xff09,
         "Linefeed" => 0xff0a, /* Linefeed, LF */
         "Clear" => 0xff0b,
