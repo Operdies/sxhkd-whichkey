@@ -23,6 +23,7 @@ pub struct HotkeyHandler {
     config: Config,
     chain: Vec<ChainItem>,
     abort: AbortKeysym,
+    backspace: AbortKeysym,
     grab: bool,
     fifo: Option<Fifo>,
     executor: Executor,
@@ -116,15 +117,21 @@ impl HotkeyHandler {
         });
     }
 
-    fn is_abort(&self, key: &Key) -> bool {
+    fn is_key(key: &Key, target: &AbortKeysym) -> bool {
         match key {
             Key {
                 modfield: 0,
                 is_press: true,
                 symbol: s,
-            } => self.abort.keycodes.contains(s),
+            } => target.keycodes.contains(s),
             _ => false,
         }
+    }
+    fn is_backspace(&self, key: &Key) -> bool {
+        Self::is_key(key, &self.backspace)
+    }
+    fn is_abort(&self, key: &Key) -> bool {
+        Self::is_key(key, &self.abort)
     }
 
     fn end_chain(&mut self) -> Result<()> {
@@ -207,6 +214,18 @@ impl HotkeyHandler {
         // terminate
         if chained && self.is_abort(&key) {
             self.end_chain()?;
+            self.sync()?;
+            return Ok(());
+        }
+
+        if chained && self.is_backspace(&key) {
+            self.chain.pop();
+            if self.chain.is_empty() {
+                self.end_chain()?;
+            } else if let Some(hk) = self.find_hotkey(&self.chain).get(0) {
+                self.update_grabset();
+                self.publish_hotkey(hk)?;
+            }
             self.sync()?;
             return Ok(());
         }
@@ -329,6 +348,7 @@ impl HotkeyHandler {
             config,
             chain: vec![],
             abort: Default::default(),
+            backspace: Default::default(),
             grab: false,
             fifo: None,
             executor: Executor::new(redir_file),
@@ -336,6 +356,17 @@ impl HotkeyHandler {
         }
     }
 
+    fn make_abort(escape_keysym: &str) -> Result<AbortKeysym> {
+        let keysym = keyboard::symbol_from_string(escape_keysym)?;
+        let escape_symbols = keyboard::kbd().get_keycodes(keysym);
+        let Some(keycodes) = escape_symbols else {
+            bail!(format!(
+                "No keycode for specified abort symbol '{}'",
+                escape_keysym
+            ))
+        };
+        Ok(AbortKeysym { keycodes })
+    }
     pub fn setup(&mut self) -> Result<()> {
         match self.make_fifo() {
             Ok(fifo) => self.fifo = Some(fifo),
@@ -344,11 +375,9 @@ impl HotkeyHandler {
         }
 
         let escape_keysym = self.cli.abort_keysym.as_deref().unwrap_or("Escape");
-        let keysym = keyboard::symbol_from_string(escape_keysym)?;
-        let escape_symbols = keyboard::kbd().get_keycodes(keysym);
-        let Some(keycodes) = escape_symbols else { bail!(format!("No keycode for specified abort symbol '{}'", escape_keysym))};
 
-        self.abort = AbortKeysym { keycodes };
+        self.abort = Self::make_abort(escape_keysym)?;
+        self.backspace = Self::make_abort("Backspace")?;
 
         self.ungrab_all()?;
         self.grab_index_0()?;
@@ -363,6 +392,7 @@ impl HotkeyHandler {
                     .abort
                     .keycodes
                     .iter()
+                    .chain(self.backspace.keycodes.iter())
                     .copied()
                     .map(|k| (k, ModMask::from_bits_truncate(0)))
                     .collect::<Vec<_>>(),
@@ -439,7 +469,9 @@ impl HotkeyHandler {
         Ok(())
     }
     fn make_fifo(&self) -> Result<Fifo, FifoError> {
-        let Some(ref status_fifo) = self.cli.status_fifo else { return Err(FifoError::FifoNotConfigured); };
+        let Some(ref status_fifo) = self.cli.status_fifo else {
+            return Err(FifoError::FifoNotConfigured);
+        };
         Fifo::new(status_fifo)
     }
     fn replay(&self) -> Result<()> {
