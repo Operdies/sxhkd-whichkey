@@ -146,6 +146,7 @@ pub fn start(settings: CliArguments) -> Result<()> {
                             if let Some(key) = as_key(&evt) {
                                 hotkey_handler.handle_key(key)?;
                             }
+                            kbd.sync_keyboard()?;
                         }
                     } else if fd == socket_fd {
                         while let Ok((client, _)) = socket.accept() {
@@ -192,7 +193,8 @@ pub fn start(settings: CliArguments) -> Result<()> {
                     hotkey_handler.toggle_grab()?;
                 }
             }
-            // TODO: I'm not sure if this can happen?
+            // This is triggered for Ok(0) -- this case is only possible when a timeout is
+            // provided
             _ => {}
         }
     }
