@@ -1,3 +1,4 @@
+use crate::keyboard::kbd;
 use crate::parser::config::AddBindingError;
 use crate::parser::Hotkey;
 use crate::rhkc::ipc::{BindCommand, SubscribeEventMask, UnbindCommand};
@@ -28,6 +29,7 @@ pub struct HotkeyHandler {
     fifo: Option<Fifo>,
     executor: Executor,
     subscribers: RefCell<Vec<Client>>,
+    previous_key: u8,
 }
 
 struct Client {
@@ -86,7 +88,6 @@ impl HotkeyHandler {
                 }
             }
         }
-        println!("PUBLISH {:?}", message);
         if let Some(ref fifo) = self.fifo {
             if let Err(e) = fifo.write_message(message) {
                 eprintln!("Failed to write to fifo: {}", e);
@@ -135,9 +136,8 @@ impl HotkeyHandler {
     }
 
     fn end_chain(&mut self) -> Result<()> {
-        self.ungrab_all()?;
         self.chain.clear();
-        self.grab_index_0()?;
+        self.update_grabset();
         self.publish(&IpcMessage::EndChain);
         Ok(())
     }
@@ -200,9 +200,24 @@ impl HotkeyHandler {
         Ok(())
     }
 
-    pub fn handle_key(&mut self, key: Key) -> Result<()> {
+    pub fn handle_key(&mut self, mut key: Key) -> Result<()> {
         if key.is_press {
             self.cancel_timeout();
+        }
+
+        let prev = self.previous_key;
+        self.previous_key = key.symbol;
+        // Ignore this key if it was a key release, and this was not the previous key
+        if !key.is_press && key.symbol != prev {
+            return Ok(());
+        }
+
+        // This is for the special case of binding e.g. @Super_L
+        // On release, @Super_L will have modfield for super set
+        // In this case, we should unset the super modifier so @Super_L triggers itself
+        let modfield = kbd().modfield_from_keycode(key.symbol);
+        if modfield != 0 && modfield & key.modfield == modfield {
+            key.modfield -= modfield;
         }
 
         let mut chained = !self.chain.is_empty();
@@ -214,7 +229,6 @@ impl HotkeyHandler {
         // terminate
         if chained && self.is_abort(&key) {
             self.end_chain()?;
-            self.sync()?;
             return Ok(());
         }
 
@@ -226,7 +240,6 @@ impl HotkeyHandler {
                 self.update_grabset();
                 self.publish_hotkey(hk)?;
             }
-            self.sync()?;
             return Ok(());
         }
 
@@ -351,6 +364,7 @@ impl HotkeyHandler {
             backspace: Default::default(),
             grab: false,
             fifo: None,
+            previous_key: 0,
             executor: Executor::new(redir_file),
             subscribers: RefCell::new(vec![]),
         }
@@ -420,8 +434,7 @@ impl HotkeyHandler {
 
         // Generate a vector of everything we want to grab so it can be used in a batching
         // operation. I measured this to be ~15 times faster than doing every request sequentially
-        // TODO: Update cycle implementation in hotkey struct to avoid attempting to grab each
-        // cycle
+        // TODO: Update cycle implementation in hotkey struct to avoid attempting to grab each cycle
         let grab_set: Vec<_> = hotkeys
             .iter()
             .flat_map(|a| {
@@ -491,6 +504,7 @@ impl HotkeyHandler {
 
     /// This updates the grab set to exactly the set of currently valid keys
     fn update_grabset(&mut self) {
+        let _ = self.sync();
         let _ = self.ungrab_all();
         if !self.chain_locked() {
             Self::grab_index(self.config.get_hotkeys(), 0);
@@ -510,9 +524,6 @@ impl HotkeyHandler {
                     self.update_grabset();
                 }
                 self.publish(&IpcMessage::BindingRemoved(unbind.clone()));
-                for r in removed.into_iter() {
-                    let _ = write!(client, "# REMOVE\n{}", r);
-                }
             }
             Err(e) => {
                 let _ = write!(client, "Failed to parse input: {}", e);
@@ -530,12 +541,6 @@ impl HotkeyHandler {
                 if !result.added.is_empty() || !result.removed.is_empty() {
                     self.publish(&IpcMessage::BindingAdded(bind.clone()));
                     self.update_grabset();
-                }
-                for added in result.added.into_iter() {
-                    let _ = writeln!(client, "# ADD\n{}", &added);
-                }
-                for removed in result.removed.into_iter() {
-                    let _ = writeln!(client, "# REMOVE\n{}", &removed);
                 }
                 for error in result.errors {
                     match error {

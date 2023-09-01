@@ -58,7 +58,7 @@ impl Keyboard {
             .unwrap_or(None)
     }
 
-    fn modfield_from_keycode(&self, keycode: u8) -> u32 {
+    pub fn modfield_from_keycode(&self, keycode: u8) -> u32 {
         if keycode == 0 {
             return 0;
         }
