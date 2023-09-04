@@ -11,7 +11,7 @@ use xcb::x::Event;
 
 use anyhow::{anyhow, bail, Result};
 use std::fmt::Display;
-use std::os::fd::AsRawFd;
+use std::os::fd::{self, AsRawFd};
 use std::os::unix::net::UnixStream;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -111,13 +111,14 @@ pub fn start(settings: CliArguments) -> Result<()> {
     };
     hotkey_handler.setup()?;
 
-    let keyboard_fd = keyboard::kbd().connection().as_raw_fd();
+    let keyboard_fd =
+        unsafe { fd::BorrowedFd::borrow_raw(keyboard::kbd().connection().as_raw_fd()) };
     let ipc_server = ipc::DroppableListener::force()?;
     let socket = &ipc_server.listener;
     socket
         .set_nonblocking(true)
         .expect("Failed to create non-blocking socket");
-    let socket_fd = socket.as_raw_fd();
+    let socket_fd = unsafe { fd::BorrowedFd::borrow_raw(socket.as_raw_fd()) };
 
     use signal_hook::consts::signal::*;
     let toggle_grab: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
@@ -133,47 +134,43 @@ pub fn start(settings: CliArguments) -> Result<()> {
     let kbd = keyboard::kbd();
     loop {
         let mut fd_list = FdSet::new();
-        fd_list.insert(keyboard_fd);
-        fd_list.insert(socket_fd);
+        fd_list.insert(&keyboard_fd);
+        fd_list.insert(&socket_fd);
         match nix::sys::select::select(None, &mut fd_list, None, None, None) {
             // Select returned because one of the fd's are ready for reading
-            Ok(c) if c > 0 => {
-                let ready = fd_list.fds(None);
-                for fd in ready {
-                    if fd == keyboard_fd {
-                        // Drain the connection
-                        while let Some(evt) = kbd.poll_event()? {
-                            if let Some(key) = as_key(&evt) {
-                                hotkey_handler.handle_key(key)?;
+            Ok(_) => {
+                // Handle all pending keyboard events
+                while let Some(evt) = kbd.poll_event()? {
+                    if let Some(key) = as_key(&evt) {
+                        hotkey_handler.handle_key(key)?;
+                    }
+                    kbd.sync_keyboard()?;
+                }
+
+                // Handle all pending socket connections
+                while let Ok((client, _)) = socket.accept() {
+                    let timeout = Duration::from_millis(1);
+                    let e = client
+                        .set_read_timeout(Some(timeout))
+                        .and(client.set_write_timeout(Some(timeout)));
+                    if let Err(e) = e {
+                        eprintln!("Dropping client: failed to set timeout: {}", e);
+                        continue;
+                    }
+                    let parse = TryFromReader::try_from(&client);
+                    match parse {
+                        Ok(c) => match c {
+                            IpcCommand::Bind(binding) => {
+                                hotkey_handler.add_bindings(client, binding);
                             }
-                            kbd.sync_keyboard()?;
-                        }
-                    } else if fd == socket_fd {
-                        while let Ok((client, _)) = socket.accept() {
-                            let timeout = Duration::from_millis(1);
-                            let e = client
-                                .set_read_timeout(Some(timeout))
-                                .and(client.set_write_timeout(Some(timeout)));
-                            if let Err(e) = e {
-                                eprintln!("Dropping client: failed to set timeout: {}", e);
-                                continue;
+                            IpcCommand::Unbind(unbind) => {
+                                hotkey_handler.delete_bindings(client, unbind);
                             }
-                            let parse = TryFromReader::try_from(&client);
-                            match parse {
-                                Ok(c) => match c {
-                                    IpcCommand::Bind(binding) => {
-                                        hotkey_handler.add_bindings(client, binding);
-                                    }
-                                    IpcCommand::Unbind(unbind) => {
-                                        hotkey_handler.delete_bindings(client, unbind);
-                                    }
-                                    IpcCommand::Subscribe(subscribe) => {
-                                        hotkey_handler.add_subscriber(client, subscribe.events)
-                                    }
-                                },
-                                Err(e) => eprintln!("Failed to parse command: {}", e),
+                            IpcCommand::Subscribe(subscribe) => {
+                                hotkey_handler.add_subscriber(client, subscribe.events)
                             }
-                        }
+                        },
+                        Err(e) => eprintln!("Failed to parse command: {}", e),
                     }
                 }
             }
@@ -193,9 +190,6 @@ pub fn start(settings: CliArguments) -> Result<()> {
                     hotkey_handler.toggle_grab()?;
                 }
             }
-            // This is triggered for Ok(0) -- this case is only possible when a timeout is
-            // provided
-            _ => {}
         }
     }
 }
