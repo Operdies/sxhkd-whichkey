@@ -29,7 +29,6 @@ pub struct HotkeyHandler {
     fifo: Option<Fifo>,
     executor: Executor,
     subscribers: RefCell<Vec<Client>>,
-    previous_key: u8,
 }
 
 struct Client {
@@ -205,13 +204,6 @@ impl HotkeyHandler {
             self.cancel_timeout();
         }
 
-        let prev = self.previous_key;
-        self.previous_key = key.symbol;
-        // Ignore this key if it was a key release, and this was not the previous key
-        if !key.is_press && key.symbol != prev {
-            return Ok(());
-        }
-
         // This is for the special case of binding e.g. @Super_L
         // On release, @Super_L will have modfield for super set
         // In this case, we should unset the super modifier so @Super_L triggers itself
@@ -364,7 +356,6 @@ impl HotkeyHandler {
             backspace: Default::default(),
             grab: false,
             fifo: None,
-            previous_key: 0,
             executor: Executor::new(redir_file),
             subscribers: RefCell::new(vec![]),
         }
