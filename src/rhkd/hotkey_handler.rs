@@ -188,6 +188,9 @@ impl HotkeyHandler {
     }
 
     fn publish_hotkey(&self, chain: &Hotkey) -> Result<()> {
+        if self.chain.is_empty() {
+            anyhow::bail!("Chain is empty.");
+        }
         let mut hotkey_string = String::new();
         for item in &chain.chain[0..self.chain.len() - 1] {
             hotkey_string.push_str(&item.repr);
@@ -265,10 +268,9 @@ impl HotkeyHandler {
             return Ok(());
         }
 
-        self.publish_hotkey(&matching[0])?;
-
         // Update the current chain to match the lock of whatever is currently matching.
         self.align_locks(&matching);
+        self.publish_hotkey(&matching[0])?;
 
         // We should replay this key if any matched chains has requested it
         let replay = matching
@@ -294,6 +296,7 @@ impl HotkeyHandler {
                 terminals[0].chain_repr()
             ));
         }
+
         if let Some(hotkey) = terminals.get(0) {
             self.publish(&IpcMessage::Command(hotkey.command.clone()));
             match self.executor.run(hotkey) {
@@ -307,31 +310,36 @@ impl HotkeyHandler {
                     self.report_error(format!("Error cycling hotkey: {}", e));
                 }
             }
-            self.pop_non_locking();
+            let popped = self.pop_non_locking();
             if self.chain.is_empty() && chained {
                 self.end_chain()?;
+            } else if popped && !self.chain.is_empty() {
+                // If anything was popped, we should publish the new state
+                self.publish_hotkey(&matching[0])?;
             }
         }
-
-        self.update_grabset();
 
         if !self.chain.is_empty() && !chained {
             self.publish(&IpcMessage::BeginChain);
         }
 
+        self.update_grabset();
         self.schedule_timeout();
 
         Ok(())
     }
 
-    fn pop_non_locking(&mut self) {
+    fn pop_non_locking(&mut self) -> bool {
         // Keep popping the chain until a lock is encountered
+        let mut popped = false;
         while let Some(back) = self.chain.pop() {
             if back.locking {
                 self.chain.push(back);
-                return;
+                return popped;
             }
+            popped = true;
         }
+        popped
     }
 
     pub fn timeout(&mut self) -> Result<()> {
