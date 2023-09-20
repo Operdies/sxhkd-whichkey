@@ -97,7 +97,16 @@ impl Config {
         }
 
         for hk in new_hotkeys.into_iter() {
-            if !bind.overwrite {
+            // For cycles, we only need to check chain interference for the first element
+            if !bind.overwrite
+                && matches!(
+                    hk.cycle,
+                    None | Some(Cycle {
+                        delay: 0,
+                        period: _
+                    })
+                )
+            {
                 let current = &self.hotkeys;
                 if let Some(idx) = Self::get_first_interfering(&hk, current) {
                     let current = &current[idx];
