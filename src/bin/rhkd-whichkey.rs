@@ -349,7 +349,9 @@ fn main() -> glib::ExitCode {
         std::env::set_var("DISPLAY", ":0");
         println!("DISPLAY is not set. Trying with DISPLAY=\":0\"");
     }
-    let application = gtk::Application::new(Some("rhkd.whichkey"), Default::default());
+    let display = std::env::var("DISPLAY").unwrap();
+    let appname = format!("rhkd.whichkey{}", display.chars().last().unwrap());
+    let application = gtk::Application::new(Some(appname.as_ref()), Default::default());
     application.connect_activate(|app| {
         // The CSS "magic" happens here.
         let provider = gtk::CssProvider::new();
