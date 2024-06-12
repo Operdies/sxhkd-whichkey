@@ -202,6 +202,25 @@ impl HotkeyHandler {
         Ok(())
     }
 
+    pub fn handle_chords(&mut self, chords: Vec<Chord>) -> Result<()> {
+        for chord in chords {
+            let dts = keyboard::kbd().get_keycodes(chord.keysym);
+            if let Some(s) = dts.and_then(|x| x.first().cloned()) {
+                let mut key = Key {
+                    modfield: chord.modfield.bits(),
+                    symbol: s,
+                    is_press: true,
+                };
+                self.handle_key(key)?;
+                key.is_press = false;
+                self.handle_key(key)?;
+            } else {
+                println!("No keycodes for keysym: {:?}", chord)
+            }
+        }
+        Ok(())
+    }
+
     pub fn handle_key(&mut self, mut key: Key) -> Result<()> {
         if key.is_press {
             self.cancel_timeout();
@@ -231,7 +250,7 @@ impl HotkeyHandler {
             self.chain.pop();
             if self.chain.is_empty() {
                 self.end_chain()?;
-            } else if let Some(hk) = self.find_hotkey(&self.chain).get(0) {
+            } else if let Some(hk) = self.find_hotkey(&self.chain).first() {
                 self.update_grabset();
                 self.publish_hotkey(hk)?;
             }
@@ -297,7 +316,7 @@ impl HotkeyHandler {
             ));
         }
 
-        if let Some(hotkey) = terminals.get(0) {
+        if let Some(hotkey) = terminals.first() {
             self.publish(&IpcMessage::Command(hotkey.command.clone()));
             match self.executor.run(hotkey) {
                 Ok(_) => {}
@@ -356,6 +375,7 @@ impl HotkeyHandler {
 
     pub fn new(cli: CliArguments, config: Config) -> Self {
         let redir_file = cli.redir_file.clone();
+        let dry = cli.dry_mode;
         Self {
             cli,
             config,
@@ -364,7 +384,7 @@ impl HotkeyHandler {
             backspace: Default::default(),
             grab: false,
             fifo: None,
-            executor: Executor::new(redir_file),
+            executor: Executor::new(redir_file, dry),
             subscribers: RefCell::new(vec![]),
         }
     }
@@ -441,7 +461,7 @@ impl HotkeyHandler {
                     return vec![];
                 };
                 kbd.get_keycodes(chain.keysym)
-                    .unwrap_or(vec![])
+                    .unwrap_or_default()
                     .iter()
                     .copied()
                     .map(|k| {

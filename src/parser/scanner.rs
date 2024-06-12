@@ -85,7 +85,7 @@ impl<'a> Scanner<'a> {
         }
         Err(ConfigParseError::UnterminatedGroup(
             tokens
-                .get(0)
+                .first()
                 .cloned()
                 .unwrap_or_else(|| Token::StartGroup(start..self.cursor)),
         ))?

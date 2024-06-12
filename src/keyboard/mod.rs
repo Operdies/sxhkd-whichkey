@@ -7,6 +7,8 @@ use x::Allow::*;
 
 use anyhow::{Context, Result};
 
+use crate::CliArguments;
+
 lazy_static! {
     static ref KEYBOARD: Keyboard = Keyboard::new().unwrap();
 }
@@ -16,6 +18,7 @@ pub struct Keyboard {
     conn: xcb::Connection,
     keycode_lookup: HashMap<u32, Vec<u8>>,
     mods: x::GetModifierMappingReply,
+    no_grab: bool,
 }
 
 impl Keyboard {
@@ -159,49 +162,60 @@ impl Keyboard {
     }
 
     pub fn grab_many(&self, keys: &[(u8, xcb::x::ModMask)]) -> Vec<ProtocolResult<()>> {
-        keys.iter()
-            .copied()
-            .map(|(key, modifiers)| {
-                self.conn.send_request_checked(&xcb::x::GrabKey {
-                    owner_events: true,
-                    grab_window: self.root,
-                    key,
-                    modifiers,
-                    pointer_mode: xcb::x::GrabMode::Async,
-                    keyboard_mode: xcb::x::GrabMode::Sync,
+        if !self.no_grab {
+            keys.iter()
+                .copied()
+                .map(|(key, modifiers)| {
+                    self.conn.send_request_checked(&xcb::x::GrabKey {
+                        owner_events: true,
+                        grab_window: self.root,
+                        key,
+                        modifiers,
+                        pointer_mode: xcb::x::GrabMode::Async,
+                        keyboard_mode: xcb::x::GrabMode::Sync,
+                    })
                 })
-            })
-            .collect::<Vec<_>>()
-            .into_iter()
-            .map(|c| self.conn.check_request(c))
-            .collect()
+                .collect::<Vec<_>>()
+                .into_iter()
+                .map(|c| self.conn.check_request(c))
+                .collect()
+        } else {
+            vec![]
+        }
     }
 
     pub fn grab(&self, key: u8, modifiers: xcb::x::ModMask) -> Result<()> {
-        let request = xcb::x::GrabKey {
-            owner_events: true,
-            grab_window: self.root,
-            modifiers,
-            key,
-            pointer_mode: xcb::x::GrabMode::Async,
-            keyboard_mode: xcb::x::GrabMode::Sync,
-        };
-        self.conn
-            .send_and_check_request(&request)
-            .context("Key is already grabbed")
+        if !self.no_grab {
+            let request = xcb::x::GrabKey {
+                owner_events: true,
+                grab_window: self.root,
+                modifiers,
+                key,
+                pointer_mode: xcb::x::GrabMode::Async,
+                keyboard_mode: xcb::x::GrabMode::Sync,
+            };
+            return self.conn
+                .send_and_check_request(&request)
+                .context("Key is already grabbed");
+        }
+        Ok(())
     }
 
     pub fn ungrab(&self, key: u8, modifiers: xcb::x::ModMask) -> xcb::Result<()> {
-        let request = xcb::x::UngrabKey {
-            key,
-            grab_window: self.root,
-            modifiers,
-        };
-        self.conn.send_and_check_request(&request)?;
+        if !self.no_grab {
+            let request = xcb::x::UngrabKey {
+                key,
+                grab_window: self.root,
+                modifiers,
+            };
+            self.conn.send_and_check_request(&request)?;
+        }
         Ok(())
     }
     pub fn ungrab_all(&self) -> xcb::Result<()> {
-        self.ungrab(xcb::x::GRAB_ANY, xcb::x::ModMask::ANY)?;
+        if !self.no_grab {
+            self.ungrab(xcb::x::GRAB_ANY, xcb::x::ModMask::ANY)?;
+        }
         Ok(())
     }
 }
@@ -258,11 +272,15 @@ impl Keyboard {
         let mods = conn.send_request(&mods);
         let mods = conn.wait_for_reply(mods)?;
 
+        let cfg = CliArguments::default();
+        let no_grab = cfg.read_from_stdin;
+
         Ok(Keyboard {
             conn,
             root,
             keycode_lookup,
             mods,
+            no_grab,
         })
     }
 }

@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use crate::{keyboard, parser::permutator::Permute};
 use thiserror::Error;
-pub use xcb::x::ModMask;
 
 use super::*;
 
@@ -626,10 +625,10 @@ pub fn chord_from_tokens(tokens: &[Token], context: &[u8]) -> Result<Vec<Chord>>
             Some(e) => {
                 if let Some(t) = e.get_token() {
                     let s = t.get_string(context);
-                    return Err(ChordParseError::Contextual(format!(
+                    Err(ChordParseError::Contextual(format!(
                         "{} - in text '{}'",
                         err, s
-                    )))?;
+                    )))?
                 }
                 Err(err)
             }

@@ -11,10 +11,11 @@ pub struct Executor {
     file_handle: Option<std::fs::File>,
     redir_fd: Option<RawFd>,
     shell: String,
+    dry: bool,
 }
 
 impl Executor {
-    pub fn new(redir_file: Option<String>) -> Self {
+    pub fn new(redir_file: Option<String>, dry: bool) -> Self {
         let shell = std::env::var("SHELL").unwrap_or("bash".to_string());
         let redir_fd = redir_file
             .map(|r| {
@@ -32,23 +33,29 @@ impl Executor {
             file_handle: redir_fd,
             redir_fd: raw_fd,
             shell,
+            dry,
         }
     }
 
     pub fn run(&self, hk: &Hotkey) -> Result<()> {
         let mut cmd = std::process::Command::new(self.shell.as_str());
         let mut cmd = cmd.arg("-c").arg(hk.command.to_string()).stdin(Stdio::null());
-        if let Some(fd) = self.redir_fd {
-            unsafe {
-                cmd = cmd
-                    .stdout(Stdio::from_raw_fd(fd))
-                    .stderr(Stdio::from_raw_fd(fd))
+        if self.dry {
+            println!("Hotkey: {} would run: '{}'", hk, hk.command);
+        } else {
+            println!("Hotkey: {} -> '{}'", hk, hk.command);
+            if let Some(fd) = self.redir_fd {
+                unsafe {
+                    cmd = cmd
+                        .stdout(Stdio::from_raw_fd(fd))
+                        .stderr(Stdio::from_raw_fd(fd))
+                }
             }
-        }
-        let mut cmd = cmd.spawn()?;
-        // .spawn()?;
-        if hk.sync {
-            cmd.wait()?;
+            let mut cmd = cmd.spawn()?;
+            // .spawn()?;
+            if hk.sync {
+                cmd.wait()?;
+            }
         }
         Ok(())
     }

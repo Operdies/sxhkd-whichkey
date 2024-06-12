@@ -40,6 +40,12 @@ pub struct CliArguments {
     /// with a bash script by using rhkc.
     #[arg(short = 'c', long = "config-path")]
     pub config_path: Option<String>,
+    /// Read key events from stdin. This is useful for testing.
+    #[arg(short = 'i', long = "stdin")]
+    pub read_from_stdin: bool,
+    /// Only print commands instead of executing them
+    #[arg(short = 'd', long = "dry")]
+    pub dry_mode: bool,
 }
 
 impl Default for CliArguments {

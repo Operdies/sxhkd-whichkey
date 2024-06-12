@@ -1,10 +1,11 @@
-use crate::parser::{config::Config, Chord};
+use crate::parser::{config::Config, Chord, self};
 use crate::rhkc::ipc::{self, BindCommand, IpcCommand, TryFromReader, UnbindCommand};
 use crate::CliArguments;
 use std::time::Duration;
 
 use super::keyboard;
 use super::parser::config;
+use nix::libc::STDIN_FILENO;
 use nix::sys::select::FdSet;
 use thiserror::Error;
 use xcb::x::Event;
@@ -105,6 +106,9 @@ fn as_key(event: &xcb::Event) -> Option<Key> {
 }
 
 pub fn start(settings: CliArguments) -> Result<()> {
+    let read_from_stdin = settings.read_from_stdin;
+    println!("stdin {}", settings.read_from_stdin);
+    println!("dry {}", settings.dry_mode);
     let mut hotkey_handler = {
         let cfg = config::load_config(settings.config_path.as_deref())?;
         HotkeyHandler::new(settings, cfg)
@@ -119,6 +123,7 @@ pub fn start(settings: CliArguments) -> Result<()> {
         .set_nonblocking(true)
         .expect("Failed to create non-blocking socket");
     let socket_fd = unsafe { fd::BorrowedFd::borrow_raw(socket.as_raw_fd()) };
+    let stdin_fd = unsafe { fd::BorrowedFd::borrow_raw(STDIN_FILENO) };
 
     use signal_hook::consts::signal::*;
     let toggle_grab: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
@@ -135,6 +140,7 @@ pub fn start(settings: CliArguments) -> Result<()> {
     loop {
         let mut fd_list = FdSet::new();
         fd_list.insert(&keyboard_fd);
+        fd_list.insert(&stdin_fd);
         fd_list.insert(&socket_fd);
         match nix::sys::select::select(None, &mut fd_list, None, None, None) {
             // Select returned because one of the fd's are ready for reading
@@ -142,9 +148,24 @@ pub fn start(settings: CliArguments) -> Result<()> {
                 // Handle all pending keyboard events
                 while let Some(evt) = kbd.poll_event()? {
                     if let Some(key) = as_key(&evt) {
-                        hotkey_handler.handle_key(key)?;
+                        if !read_from_stdin {
+                            hotkey_handler.handle_key(key)?;
+                        }
                     }
                     kbd.sync_keyboard()?;
+                }
+                if read_from_stdin && fd_list.contains(&stdin_fd) {
+                    let mut buffer = String::new();
+                    std::io::stdin().read_line(&mut buffer)?;
+
+                    match parser::parse_chord_chain(&buffer) {
+                        Ok(chords) => {
+                            hotkey_handler.handle_chords(chords)?;
+                        }
+                        Err(e) => {
+                            eprintln!("Failed to parse keys from {}: {}", buffer, e);
+                        }
+                    }
                 }
 
                 // Handle all pending socket connections
