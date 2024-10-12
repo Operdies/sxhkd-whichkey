@@ -165,9 +165,11 @@ fn build_ui(application: &gtk::Application) {
         .can_focus(false)
         .deletable(false)
         .resizable(false)
+        // NOTE: window_position does not seem to work on wayland We should instead manually
+        // position the window (on the currently active monitor)
         .window_position(gtk::WindowPosition::CenterAlways)
         .accept_focus(false)
-        .type_hint(gdk::WindowTypeHint::Notification)
+        .type_hint(gdk::WindowTypeHint::Splashscreen)
         .deletable(false)
         .skip_taskbar_hint(true)
         .mnemonics_visible(false)
@@ -325,12 +327,17 @@ fn build_ui(application: &gtk::Application) {
         }
     });
 
+    let xcb = xcb::Connection::connect(Some(&std::env::var("DISPLAY").unwrap())).unwrap();
     receiver.attach(None, move |evt| {
         match evt {
             Event::KeyEvent(ref evt) => {
                 let grid = build_grid(evt);
                 if let Some(c) = window.child() {
                     window.remove(&c);
+                }
+                // TODO: Move window to center of current monitor
+                {
+                    // get current monitor and its geometry
                 }
                 window.set_child(Some(&grid));
                 window.show_all();
